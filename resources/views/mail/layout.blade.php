@@ -1,0 +1,3698 @@
+@php
+
+$tokens = \App\Models\Token::all();
+$active = \App\Models\Token::find(session('active_token')) ?? $tokens->first();
+
+if(!isset($folders)){
+    $graph = app(\App\Services\MicrosoftGraphService::class);
+    $folders = $graph->folders()['value'] ?? [];
+}
+
+@endphp
+
+<!DOCTYPE html>
+<html>
+<head>
+
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<title>Mail</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css">
+<link rel="stylesheet" href="/css/mail.css">
+
+<style>
+
+</style>
+
+</head>
+
+
+<body>
+    <div id="mailNotifications"></div>
+
+    <div id="toast"></div>
+
+
+<!-- TOP BAR -->
+<!-- TOP BAR -->
+<div class="topbar">
+
+    <div class="logo">Outlook</div>
+
+<div class="topbar-actions">
+
+<button class="onedrive-btn" onclick="openOneDrive()">
+<i class="fa-solid fa-cloud"></i>
+OneDrive
+</button>
+
+</div>
+
+    <div class="search-box">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input
+            type="text"
+            id="mailSearch"
+            placeholder="Search mail"
+            autocomplete="off"
+        >
+    </div>
+
+    <div class="account-box">
+<i class="fa-solid fa-gear settings-icon"
+onclick="openSettings()"></i>
+        <div class="account-current" onclick="toggleAccountMenu()">
+
+            <div class="avatar">
+                {{ strtoupper(substr($active->name,0,1)) }}
+            </div>
+
+            <div class="account-info">
+                <div class="account-name">{{$active->name}}</div>
+                <div class="account-email">{{$active->email}}</div>
+            </div>
+
+            <div>▼</div>
+
+        </div>
+
+       <div class="account-menu" id="accountMenu">
+
+@foreach($tokens as $token)
+
+<div class="account-item
+@if($token->id == session('active_token')) active @endif"
+onclick="switchAccount({{ $token->id }})">
+
+    <div class="avatar">
+        {{ strtoupper(substr($token->name,0,1)) }}
+    </div>
+
+    <div class="account-info">
+        <div class="account-name">{{ $token->name }}</div>
+        <div class="account-email">{{ $token->email }}</div>
+    </div>
+
+</div>
+
+@endforeach
+
+</div>
+
+    </div>
+
+</div>
+
+
+<!-- SEARCH FILTER BAR -->
+<div class="search-filters">
+
+<button onclick="addSearch('from:')">
+<i class="fa-solid fa-user"></i> From
+</button>
+
+<button onclick="addSearch('subject:')">
+<i class="fa-solid fa-pen"></i> Subject
+</button>
+
+<button onclick="addSearch('has:attachment')">
+<i class="fa-solid fa-paperclip"></i> Attachment
+</button>
+
+<button onclick="addSearch('folder:inbox')">
+<i class="fa-solid fa-inbox"></i> Inbox
+</button>
+
+<button onclick="addSearch('folder:archive')">
+<i class="fa-solid fa-box-archive"></i> Archive
+</button>
+
+</div>
+
+<!-- MAIN -->
+
+<!-- TOOLBAR -->
+
+<div class="toolbar">
+
+<button class="primary-btn" onclick="composeMail()">
+    <i class="fa-solid fa-envelope"></i>
+
+New mail
+</button>
+
+<button class="primary-btn" onclick="deleteSelected()">
+ <i class="fa-solid fa-trash"></i>
+ Delete
+</button>
+
+
+
+<button onclick="archiveSelected()">
+    <i class="fa-solid fa-box-archive"></i>
+Archive
+</button>
+
+<button onclick="replySelected()"><i class="fa-solid fa-reply"></i> Reply</button>
+
+<button onclick="forwardSelected()"><i class="fa-solid fa-forward"></i> Forward</button>
+
+<button onclick="markReadSelected()"><i class="fa-solid fa-envelope-open"></i> Mark read</button>
+
+<button id="emptyTrashBtn" onclick="emptyTrash()" style="display:none">
+🧹 Empty Trash
+</button>
+
+
+<button id="recoverBtn" onclick="recoverSelected()" style="display:none">
+♻ Restore
+</button>
+
+
+
+
+</div>
+
+<div class="main">
+
+
+<!-- ICON BAR -->
+
+<div class="iconbar"></div>
+
+
+<!-- SIDEBAR -->
+
+<div class="sidebar">
+
+<h3>Folders</h3>
+
+<div class="folder-create" onclick="createFolder()">
+
+<svg width="16" height="16" viewBox="0 0 24 24">
+<path fill="currentColor"
+d="M19 13H13V19H11V13H5V11H11V5H13V11H19V13Z"/>
+</svg>
+
+<span>New folder</span>
+
+</div>
+
+
+
+@foreach($folders as $folder)
+
+<a href="#"
+class="folder"
+draggable="false"
+data-id="{{$folder['id']}}"
+data-name="{{ strtolower($folder['displayName']) }}"
+onclick="loadFolder('{{$folder['id']}}','{{$folder['displayName']}}', this)">
+
+<i class="folder-icon"></i>
+
+<span class="folder-name">
+{{$folder['displayName']}}
+</span>
+
+<span class="folder-count">
+{{$folder['unreadItemCount'] ?? 0}}
+</span>
+
+<span class="folder-delete"
+onclick="event.stopPropagation(); deleteFolder('{{$folder['id']}}')">
+<i class="fa-solid fa-trash"></i>
+</span>
+
+</a>
+
+@endforeach
+
+</div>
+
+
+<!-- MAIL LIST -->
+
+<div class="mail-list">
+
+@yield('list')
+
+</div>
+
+
+<!-- MAIL PREVIEW -->
+
+<div class="mail-preview">
+
+<div class="empty-preview">
+📧
+<br>
+Select an email to read
+</div>
+
+@yield('preview')
+
+</div>
+
+</div>
+<script>
+
+const undoManager = {
+
+stack: [],
+timer: null,
+
+push(action){
+
+this.stack.push(action)
+this.show(action)
+
+},
+
+async undo(){
+
+if(!this.stack.length) return
+
+let action = this.stack.pop()
+
+if(action.undo){
+await action.undo()
+}
+
+this.hide()
+
+},
+
+show(action){
+
+let toast = document.getElementById("toast")
+
+toast.innerHTML = `
+<i class="fa-solid fa-circle-check"></i>
+${action.message}
+
+${action.undo ? `
+<span class="toast-undo"
+onclick="undoManager.undo()">
+Undo
+</span>
+` : ``}
+`
+
+toast.classList.add("show")
+
+clearTimeout(this.timer)
+
+this.timer = setTimeout(async ()=>{
+
+if(!this.stack.length) return
+
+let a = this.stack.pop()
+
+if(a.commit){
+await a.commit()
+}
+
+this.hide()
+
+},5000)
+
+},
+
+hide(){
+
+let toast = document.getElementById("toast")
+
+toast.classList.remove("show")
+
+},
+
+notify(message){
+
+this.show({message:message})
+
+}
+
+}
+    
+    let searchMode = false
+let searchQuery = ""
+    let editorInitialized = false
+    let folderMap = {}
+let inboxFolderId = null
+
+let lastEmailPreview = null
+
+    let selectedMails = new Set()
+
+    let activeMailItem = null
+
+    let previewCache = {}
+
+
+    let lastSelectedIndex = null
+let previewRequest = 0
+
+    let currentFolder = "inbox"
+
+let nextPage = @json($nextLink ?? null)
+
+let loadingMore = false
+
+async function loadMoreEmails(){
+
+if(!nextPage || loadingMore) return
+
+loadingMore = true
+
+
+
+/* jika sedang search */
+if(searchMode){
+
+let res = await fetch('/api/search?q='+encodeURIComponent(searchQuery)+'&next='+encodeURIComponent(nextPage))
+let data = await res.json()
+
+renderMailList(data.emails, searchQuery, true)
+
+nextPage = data.next
+
+loadingMore = false
+return
+
+}
+
+let res = await fetch('/inbox?next='+encodeURIComponent(nextPage))
+
+let html = await res.text()
+
+let parser = new DOMParser()
+
+let doc = parser.parseFromString(html,'text/html')
+
+let newItems = doc.querySelectorAll('.mail-item')
+
+let container = document.querySelector('.mail-list')
+
+newItems.forEach(item=>{
+container.appendChild(item)
+})
+
+let next = doc.querySelector('#nextPageLink')
+
+nextPage = next ? next.dataset.next : null
+
+loadingMore = false
+
+}
+
+let scrollTimer
+
+document.querySelector('.mail-list').addEventListener('scroll',function(){
+
+clearTimeout(scrollTimer)
+
+scrollTimer = setTimeout(()=>{
+
+let el = this
+
+if(el.scrollTop + el.clientHeight >= el.scrollHeight - 100){
+
+    if(!loadingMore){
+loadMoreEmails()
+}
+
+// loadMoreEmails()
+
+}
+
+},120)
+
+})
+
+</script>
+
+<script>
+document.querySelectorAll(".folder").forEach(folder => {
+
+    let name = folder.dataset.name || "";
+    let icon = folder.querySelector(".folder-icon");
+
+    if(name.includes("inbox")){
+        icon.className = "folder-icon fa-solid fa-inbox";
+    }
+    else if(name.includes("draft")){
+        icon.className = "folder-icon fa-solid fa-pen-to-square";
+    }
+    else if(name.includes("sent")){
+        icon.className = "folder-icon fa-solid fa-paper-plane";
+    }
+    else if(name.includes("deleted")){
+        icon.className = "folder-icon fa-solid fa-trash";
+    }
+    else if(name.includes("archive")){
+        icon.className = "folder-icon fa-solid fa-box-archive";
+    }
+    else if(name.includes("junk") || name.includes("spam")){
+        icon.className = "folder-icon fa-solid fa-shield-halved";
+    }
+    else if(name.includes("rss")){
+        icon.className = "folder-icon fa-solid fa-rss";
+    }
+    else if(name.includes("conversation")){
+        icon.className = "folder-icon fa-solid fa-comments";
+    }
+    else{
+        icon.className = "folder-icon fa-regular fa-folder";
+    }
+
+    folderMap[folder.dataset.id] = folder;
+
+    let folderText = folder.innerText.trim().toLowerCase();
+
+    if(folderText.includes("inbox")){
+        inboxFolderId = folder.dataset.id;
+    }
+
+});
+
+
+
+function toggleAccountMenu(){
+
+let menu = document.getElementById("accountMenu")
+
+menu.style.display =
+menu.style.display === "block"
+? "none"
+: "block"
+
+}
+document.addEventListener("click",function(e){
+
+let menu = document.getElementById("accountMenu")
+let box = document.querySelector(".account-box")
+
+if(!box.contains(e.target)){
+menu.style.display = "none"
+}
+
+})
+
+
+function switchAccount(id){
+
+window.location = "/switch-account/" + id;
+
+}
+
+</script>
+
+<script>
+  let folderCache = {}
+let cachedEmails = []
+let allEmails = []
+
+
+
+function skeletonPreview(){
+
+return `
+
+<div class="skeleton-line" style="width:60%;height:26px;margin-bottom:20px"></div>
+
+<div class="skeleton-line" style="width:40%"></div>
+<div class="skeleton-line" style="width:30%;margin-bottom:20px"></div>
+
+<div class="skeleton-line"></div>
+<div class="skeleton-line"></div>
+<div class="skeleton-line"></div>
+<div class="skeleton-line"></div>
+<div class="skeleton-line"></div>
+<div class="skeleton-line"></div>
+
+`
+
+}
+
+async function openMail(id, el){
+
+    /* jika multi select jangan buka preview */
+    if(document.querySelectorAll('.mail-item.selected').length > 1){
+        return
+    }
+
+    /* request guard supaya preview lama tidak overwrite */
+    let requestId = ++previewRequest
+
+    /* highlight mail aktif */
+    if(activeMailItem){
+        activeMailItem.classList.remove('active')
+    }
+
+    if(el){
+        el.classList.add('active')
+        activeMailItem = el
+    }
+
+    let preview = document.querySelector('.mail-preview')
+
+    /* ===============================
+       SHOW SKELETON
+    =============================== */
+
+    preview.innerHTML = skeletonPreview()
+
+    let html
+
+    /* ===============================
+       CACHE CHECK
+    =============================== */
+
+    if(previewCache[id]){
+
+        html = previewCache[id]
+
+    }else{
+
+        try{
+
+            let res = await fetch('/mail/preview/'+id)
+
+            if(!res.ok){
+                throw new Error("Preview load error")
+            }
+
+            html = await res.text()
+
+        }catch(e){
+
+            preview.innerHTML = `
+            <div style="padding:40px;color:#605e5c">
+            Unable to load email
+            </div>
+            `
+            return
+        }
+
+        /* simpan cache */
+
+        previewCache[id] = html
+
+        if(Object.keys(previewCache).length > 40){
+            delete previewCache[Object.keys(previewCache)[0]]
+        }
+
+    }
+
+    /* jika ada request baru → stop */
+    if(requestId !== previewRequest){
+        return
+    }
+
+    /* ===============================
+       RENDER EMAIL DI IFRAME
+    =============================== */
+
+ /* ===============================
+RENDER EMAIL DI IFRAME
+=============================== */
+
+preview.innerHTML = `
+<iframe class="mail-frame"
+sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+style="width:100%;height:100%;border:none;background:white">
+</iframe>
+`
+
+let iframe = preview.querySelector(".mail-frame")
+
+let doc = iframe.contentDocument || iframe.contentWindow.document
+
+doc.open()
+doc.write(html)
+doc.close()
+
+/* ATTACHMENT CLICK BRIDGE */
+
+doc.addEventListener("click",function(e){
+
+let el = e.target.closest(".mail-attachment")
+
+if(!el) return
+
+let messageId = el.dataset.message
+let index = parseInt(el.dataset.index)
+let attachments = JSON.parse(el.dataset.attachments)
+
+window.openAttachmentViewer(messageId, attachments, index)
+
+})
+
+    /* ===============================
+       AUTO MARK READ
+    =============================== */
+
+    try{
+        await fetch('/mail/read/'+id)
+    }catch(e){}
+
+    if(el){
+
+        el.classList.remove('unread')
+
+        let dot = el.querySelector('.unread-dot')
+
+       // remove unread style
+el.classList.remove('unread')
+        /* tambahkan tombol mark unread jika belum ada */
+
+        let actions = el.querySelector('.mail-actions')
+
+        if(actions && !actions.querySelector('.mark-unread')){
+
+            let btn = document.createElement("span")
+
+            btn.className = "mail-action mark-unread"
+            btn.innerText = "📩"
+
+            btn.onclick = function(e){
+                e.stopPropagation()
+                markUnread(id)
+            }
+
+            actions.prepend(btn)
+
+        }
+
+    }
+
+}
+
+
+
+
+// function openMail(id, el){
+
+// document.querySelectorAll('.mail-item')
+// .forEach(e=>e.classList.remove('active'))
+
+// if(el){
+// el.classList.add('active')
+// el.scrollIntoView({
+// block:'nearest',
+// behavior:'smooth'
+// })
+// }
+
+// let preview = document.querySelector('.mail-preview')
+
+// preview.innerHTML = skeletonPreview()
+
+// fetch('/mail/preview/'+id)
+
+// .then(res=>{
+// if(!res.ok) throw new Error("Preview error")
+// return res.text()
+// })
+
+// .then(html=>{
+// preview.innerHTML = html
+// })
+
+// .catch(()=>{
+// preview.innerHTML = `
+// <div style="padding:40px;color:#605e5c">
+// Unable to load email
+// </div>
+// `
+// })
+
+// }
+
+async function markUnread(id){
+
+await fetch('/mail/unread/'+id)
+
+let item = document.querySelector('.mail-item[mail-id="'+id+'"]')
+
+if(!item) return
+
+/* tambahkan class unread */
+
+item.classList.add('unread')
+let folder = document.querySelector(".folder.active")
+
+if(folder){
+updateFolderUnread(folder.dataset.id,1)
+}
+
+
+/* tambahkan dot jika belum ada */
+
+if(!item.querySelector('.unread-dot')){
+
+let dot = document.createElement("div")
+dot.className = "unread-dot"
+
+let avatar = item.querySelector(".mail-avatar")
+avatar.insertAdjacentElement("afterend",dot)
+
+}
+
+/* tambahkan icon mark unread kembali */
+
+let actions = item.querySelector(".mail-actions")
+
+if(actions && !actions.querySelector(".mark-unread")){
+
+let icon = document.createElement("span")
+
+icon.className = "mail-action mark-unread"
+icon.innerText = "📩"
+
+icon.onclick = function(e){
+e.stopPropagation()
+markUnread(id)
+}
+
+actions.prepend(icon)
+
+}
+
+undoManager.notify("Marked as unread")
+
+}
+
+
+async function liveSearch(q){
+
+if(q.length < 3) return;
+
+searchMode = true
+searchQuery = q
+
+nextPage = null
+
+let res = await fetch('/api/search?q='+encodeURIComponent(q))
+let data = await res.json()
+
+nextPage = data.next
+
+renderMailList(data.emails, q)
+
+}
+
+
+function renderMailList(mails,keyword,append=false){
+
+let container = document.querySelector('.mail-list')
+
+let htmlAll = ""
+
+
+mails.forEach(mail=>{
+    let time = formatMailDate(mail.receivedDateTime)
+
+let sender = escapeHtml(mail.from ?? "Unknown")
+
+let subject = highlight(
+escapeHtml(mail.subject ?? ""),
+keyword
+)
+
+let previewText = escapeHtml(mail.bodyPreview ?? "")
+
+if(previewText.length > 120){
+previewText = previewText.substring(0,120) + "..."
+}
+
+let preview = highlight(previewText,keyword)
+let letter = sender.charAt(0).toUpperCase()
+
+let folderLabel = `
+<span class="mail-folder-label">
+${mail.folder}
+</span>
+`
+
+htmlAll += `
+<div draggable="true"
+     mail-id="${mail.id}"
+     class="mail-item ${!mail.isRead ? 'unread':''}"
+     onclick="handleMailClick(event,this,'${mail.id}')">
+
+    <input type="checkbox" class="mail-checkbox" onclick="event.stopPropagation()">
+
+    <div class="mail-avatar">${letter}</div>
+
+    <div class="mail-content">
+
+        <div class="mail-header">
+            <div class="mail-sender">${sender}</div>
+
+            <div class="mail-right">
+
+${mail.hasAttachments ? `
+<span class="mail-icon">
+<i class="fa-solid fa-paperclip"></i>
+</span>` : ''}
+
+<span class="mail-icon"
+onclick="event.stopPropagation(); toggleFlag('${mail.id}')">
+
+<i class="${mail.flagged ? 'fa-solid fa-flag' : 'fa-regular fa-flag'}"></i>
+
+</span>
+
+
+${mail.isRead ? `
+
+<span class="mail-action"
+onclick="event.stopPropagation(); markUnread('${mail.id}')">
+
+<i class="fa-regular fa-envelope"></i>
+
+</span>
+
+` : `
+
+<span class="mail-action"
+onclick="event.stopPropagation(); markRead('${mail.id}')">
+
+<i class="fa-solid fa-envelope-open"></i>
+
+</span>
+
+`}
+
+
+<span class="mail-action delete"
+onclick="event.stopPropagation(); deleteMail('${mail.id}')">
+
+<i class="fa-regular fa-trash-can"></i>
+
+</span>
+
+<span class="mail-time">${time}</span>
+
+</div>
+</div>
+
+        <div class="mail-subject">${subject}</div>
+        <div class="mail-preview-text">${preview}</div>
+
+    </div>
+</div>
+`
+
+})
+
+if(append){
+container.insertAdjacentHTML("beforeend",htmlAll)
+}else{
+container.innerHTML = htmlAll
+}
+}
+
+
+function instantFilter(q){
+
+if(!q){
+renderMailList(allEmails,"")
+return
+}
+
+q = q.toLowerCase()
+
+let filtered = allEmails.filter(mail =>
+
+(mail.subject ?? "").toLowerCase().includes(q) ||
+(mail.bodyPreview ?? "").toLowerCase().includes(q) ||
+(mail.from ?? "").toLowerCase().includes(q)
+
+)
+
+renderMailList(filtered,q)
+
+}
+
+function highlight(text,keyword){
+
+if(!keyword) return text
+
+let regex = new RegExp(`(${keyword})`,'gi')
+
+return text.replace(regex,'<mark>$1</mark>')
+
+}
+
+
+async function deleteMail(id){
+
+let item = document.querySelector(`.mail-item[mail-id="${id}"]`)
+if(!item) return
+
+let container = document.querySelector(".mail-list")
+
+let html = item.outerHTML
+
+/* animasi remove */
+
+item.classList.add("removing")
+
+setTimeout(()=> item.remove(),300)
+
+
+/* PUSH UNDO ACTION */
+
+undoManager.push({
+
+message:"Message moved to Deleted Items",
+
+undo: async ()=>{
+
+container.insertAdjacentHTML("afterbegin",html)
+
+let el = container.querySelector(`[mail-id="${id}"]`)
+el.classList.add("restoring")
+
+await fetch('/mail/recover/'+id)
+
+},
+
+commit: async ()=>{
+
+let url = '/mail/delete/'+id
+
+if(currentFolder.toLowerCase().includes("deleted")){
+url = '/mail/delete-permanent/'+id
+}
+
+await fetch(url)
+
+}
+
+})
+
+}
+
+
+
+async function toggleFlag(id){
+
+await fetch('/mail/flag/'+id)
+
+location.reload()
+
+}
+
+function openThread(conversationId, messageId, el){
+
+if(!conversationId){
+conversationId = messageId
+}
+
+document.querySelector('.mail-preview').innerHTML = "Loading..."
+
+fetch('/mail/thread/'+conversationId+'?message='+messageId)
+
+.then(res=>res.text())
+
+.then(html=>{
+
+document.querySelector('.mail-preview').innerHTML = html
+
+})
+
+}
+
+// async function loadFolder(id, name, el){
+
+
+// currentFolder = name
+
+
+// document.querySelectorAll('.folder')
+// .forEach(f=>f.classList.remove('active'))
+
+// if(el){
+// el.classList.add('active')
+// }
+
+// toggleTrashButtons()
+
+
+// let list = document.querySelector('.mail-list')
+// let preview = document.querySelector('.mail-preview')
+
+// /* tampilkan skeleton inbox */
+// list.innerHTML = skeletonList()
+
+// /* reset preview */
+// preview.innerHTML = `
+// <div style="text-align:center;margin-top:80px;color:#605e5c">
+// 📧
+// <br><br>
+// Select an email to read
+// </div>
+// `
+
+// /* ambil folder */
+// let res = await fetch('/folder/'+id)
+
+// let html = await res.text()
+
+// let parser = new DOMParser()
+// let doc = parser.parseFromString(html,'text/html')
+
+// let newList = doc.querySelector('.mail-list')
+
+// if(newList){
+// list.innerHTML = newList.innerHTML
+// }
+
+// /* update nextPage untuk infinite scroll */
+// let next = doc.querySelector('#nextPageLink')
+// nextPage = next ? next.dataset.next : null
+
+// /* update url tanpa reload */
+// history.pushState({},'', '/folder/'+id)
+
+// }
+
+async function loadFolder(id, name, el){
+
+currentFolder = name
+
+document.querySelectorAll('.folder')
+.forEach(f=>f.classList.remove('active'))
+
+if(el){
+el.classList.add('active')
+}
+
+toggleTrashButtons()
+
+let list = document.querySelector('.mail-list')
+let preview = document.querySelector('.mail-preview')
+
+/* reset preview */
+
+preview.innerHTML = `
+<div class="empty-preview">
+📧
+<br>
+Select an email to read
+</div>
+`
+
+/* ===============================
+CHECK CACHE
+=============================== */
+
+if(folderCache[id]){
+
+list.innerHTML = folderCache[id]
+nextPage = null
+
+return
+
+}
+
+/* tampilkan skeleton */
+
+list.innerHTML = skeletonList()
+
+/* fetch folder */
+
+let res = await fetch('/folder/'+id)
+
+let html = await res.text()
+
+let parser = new DOMParser()
+let doc = parser.parseFromString(html,'text/html')
+
+let newList = doc.querySelector('.mail-list')
+
+if(newList){
+
+list.innerHTML = newList.innerHTML
+
+/* save to cache */
+
+folderCache[id] = newList.innerHTML
+
+}
+
+/* infinite scroll next page */
+
+let next = doc.querySelector('#nextPageLink')
+nextPage = next ? next.dataset.next : null
+
+history.pushState({},'', '/folder/'+id)
+
+}
+
+
+function skeletonList(){
+
+let html = ''
+
+for(let i=0;i<8;i++){
+
+html += `
+<div draggable="true" class="mail-item">
+
+<div class="mail-avatar skeleton-circle"></div>
+
+<div style="flex:1">
+
+<div class="skeleton-line" style="width:40%"></div>
+
+<div class="skeleton-line" style="width:70%"></div>
+
+<div class="skeleton-line" style="width:60%"></div>
+
+</div>
+
+</div>
+`
+
+}
+
+return html
+
+}
+
+function composeMail(){
+
+let preview = document.querySelector('.mail-preview')
+
+preview.innerHTML = skeletonPreview()
+
+fetch('/mail/compose')
+
+.then(res=>res.text())
+
+.then(html=>{
+
+preview.innerHTML = html
+
+initEditor()
+initDragAttachment()
+initRecipientAutocomplete()
+initRecipientChips()   // ← tambah ini
+preloadRecipients()
+})
+
+}
+async function sendMail(){
+
+let to = recipients.join(",")
+let cc = document.getElementById("mailCc")?.value || ""
+let bcc = document.getElementById("mailBcc")?.value || ""
+
+let subject = document.getElementById("mailSubject").value
+let body = tinymce.get("mailBody").getContent()
+
+let token = document
+.querySelector('meta[name="csrf-token"]')
+.getAttribute('content')
+
+let form = new FormData()
+
+form.append("to",to)
+form.append("cc",cc)
+form.append("bcc",bcc)
+form.append("subject",subject)
+form.append("body",body)
+
+attachments.forEach(file=>{
+form.append("attachments[]",file)
+})
+
+await fetch('/mail/send',{
+
+method:'POST',
+
+headers:{
+'X-CSRF-TOKEN':token
+},
+
+body:form
+
+})
+
+undoManager.notify("Email sent")
+
+attachments = []
+
+renderAttachments()
+
+loadFolder("inbox","Inbox")
+
+
+folderCache = {}
+
+}
+async function deleteSelected(){
+
+let ids = getSelectedEmails()
+
+if(!ids.length){
+alert("Select email first")
+return
+}
+
+/* ======================
+COUNT UNREAD
+====================== */
+
+let unreadRemoved = 0
+
+ids.forEach(id=>{
+
+let el = document.querySelector('.mail-item[mail-id="'+id+'"]')
+
+if(el && el.classList.contains("unread")){
+unreadRemoved++
+}
+
+})
+
+/* UPDATE COUNTER */
+
+let folder = document.querySelector(".folder.active")
+
+if(folder && unreadRemoved > 0){
+updateFolderUnread(folder.dataset.id,-unreadRemoved)
+}
+
+/* ======================
+REMOVE UI INSTANT
+====================== */
+
+ids.forEach(id=>{
+
+let el = document.querySelector('.mail-item[mail-id="'+id+'"]')
+
+if(el){
+
+el.classList.add("removing")
+
+setTimeout(()=>{
+el.remove()
+},300)
+
+}
+
+})
+
+/* ======================
+SEND DELETE REQUEST PARALLEL
+====================== */
+
+let requests = ids.map(id=>{
+
+let url = '/mail/delete/'+id
+
+if(currentFolder.toLowerCase().includes("deleted")){
+url = '/mail/delete-permanent/'+id
+}
+
+return fetch(url)
+
+})
+
+await Promise.all(requests)
+
+if(currentFolder.toLowerCase().includes("deleted")){
+undoManager.notify("Message permanently deleted")
+}else{
+undoManager.notify(ids.length + " messages deleted")
+}
+
+folderCache = {}
+
+clearSelection()
+
+}
+
+async function archiveSelected(){
+
+let ids = getSelectedEmails()
+
+if(!ids.length){
+alert("Select email first")
+return
+}
+
+let container = document.querySelector(".mail-list")
+
+ids.forEach(id=>{
+
+let item = document.querySelector(`.mail-item[mail-id="${id}"]`)
+if(!item) return
+
+let html = item.outerHTML
+
+/* animasi remove */
+
+item.classList.add("removing")
+
+setTimeout(()=>{
+item.remove()
+},300)
+
+/* push undo */
+
+undoManager.push({
+
+message:"Message archived",
+
+undo: async ()=>{
+
+container.insertAdjacentHTML("afterbegin",html)
+
+let el = container.querySelector(`[mail-id="${id}"]`)
+el.classList.add("restoring")
+
+await fetch('/mail/recover/'+id)
+
+},
+
+commit: async ()=>{
+
+await fetch('/mail/archive/'+id)
+
+}
+
+})
+
+})
+
+clearSelection()
+
+folderCache = {}
+
+}
+
+
+
+
+async function replySelected(){
+
+let ids = getSelectedEmails()
+
+if(ids.length !== 1){
+alert("Select one email to reply")
+return
+}
+
+let id = ids[0]
+
+let preview = document.querySelector('.mail-preview')
+
+preview.innerHTML = skeletonPreview()
+
+let res = await fetch('/mail/reply/'+id)
+
+let html = await res.text()
+
+preview.innerHTML = html
+
+initEditor()
+initDragAttachment()
+initRecipientAutocomplete()
+initRecipientChips()
+preloadRecipients()
+
+}
+
+
+async function forwardSelected(){
+
+let ids = getSelectedEmails()
+
+if(ids.length !== 1){
+alert("Select one email to forward")
+return
+}
+
+let id = ids[0]
+
+let preview = document.querySelector('.mail-preview')
+
+preview.innerHTML = skeletonPreview()
+
+let res = await fetch('/mail/forward/'+id)
+
+let html = await res.text()
+
+preview.innerHTML = html
+
+initEditor()
+initDragAttachment()
+initRecipientAutocomplete()
+initRecipientChips()
+preloadRecipients()
+
+}
+
+
+async function markReadSelected(){
+
+let ids = getSelectedEmails()
+
+if(!ids.length){
+alert("Select email first")
+return
+}
+
+for(let id of ids){
+
+await fetch('/mail/read/'+id)
+
+let item = document.querySelector('.mail-item[mail-id="'+id+'"]')
+
+if(!item) continue
+
+
+/* REMOVE UNREAD CLASS */
+
+if(item.classList.contains('unread')){
+
+item.classList.remove('unread')
+
+let folder = document.querySelector(".folder.active")
+
+if(folder){
+updateFolderUnread(folder.dataset.id,-1)
+}
+
+}
+
+
+
+/* REMOVE UNREAD DOT WITH ANIMATION */
+
+let dot = item.querySelector('.unread-dot')
+
+if(dot){
+
+dot.style.transition = "opacity .25s ease"
+dot.style.opacity = 0
+
+setTimeout(()=>{
+dot.remove()
+},250)
+
+}
+
+
+/* ADD MARK UNREAD BUTTON IF NOT EXIST */
+
+let actions = item.querySelector('.mail-actions')
+
+if(actions && !actions.querySelector('.mark-unread')){
+
+let btn = document.createElement("span")
+
+btn.className = "mail-action mark-unread"
+btn.innerText = "📩"
+
+btn.onclick = function(e){
+e.stopPropagation()
+markUnread(id)
+}
+
+actions.prepend(btn)
+
+}
+
+
+/* UNCHECK CHECKBOX */
+
+let cb = item.querySelector('.mail-checkbox')
+
+if(cb){
+cb.checked = false
+}
+
+}
+
+undoManager.notify("Marked as read")
+
+}
+
+
+
+
+let currentIndex = -1
+
+document.addEventListener("keydown",function(e){
+
+let items = document.querySelectorAll('.mail-item')
+
+if(!items.length) return
+
+if(e.key === "ArrowDown"){
+
+e.preventDefault()
+
+currentIndex++
+
+if(currentIndex >= items.length){
+currentIndex = items.length-1
+}
+
+let el = items[currentIndex]
+
+let id = el.getAttribute('mail-id')
+
+if(id){
+openMail(id, el)
+el.scrollIntoView({block:'nearest'})
+}
+
+}
+
+if(e.key === "ArrowUp"){
+
+e.preventDefault()
+
+currentIndex--
+
+if(currentIndex < 0){
+currentIndex = 0
+}
+
+let el = items[currentIndex]
+
+let id = el.getAttribute('mail-id')
+
+if(id){
+openMail(id, el)
+el.scrollIntoView({block:'nearest'})
+}
+
+}
+
+})
+
+function getSelectedEmails(){
+
+/* scan DOM checkbox langsung */
+
+let ids = []
+
+document.querySelectorAll('.mail-item').forEach(item=>{
+
+let cb = item.querySelector('.mail-checkbox')
+
+if(cb && cb.checked){
+
+ids.push(item.getAttribute("mail-id"))
+
+}
+
+})
+
+return ids
+}
+
+
+document.querySelectorAll('.mail-checkbox')
+.forEach(cb=>{
+
+cb.addEventListener("click",function(e){
+
+e.stopPropagation()
+
+})
+
+})
+
+function initEditor(){
+
+let editor = tinymce.get("mailBody")
+
+if(editorInitialized && editor){
+
+editor.setContent("")
+
+return
+
+}
+
+tinymce.init({
+
+selector:'#mailBody',
+
+height:350,
+
+menubar:true,
+
+plugins:[
+'link',
+'image',
+'table',
+'lists',
+'code',
+'fullscreen',
+'paste'
+],
+
+toolbar:
+'undo redo | fontfamily fontsize | bold italic underline | forecolor backcolor | alignleft aligncenter alignright | bullist numlist | link image table | code fullscreen',
+
+font_family_formats:
+'Segoe UI=Segoe UI;Arial=Arial;Calibri=Calibri;Times New Roman=Times New Roman',
+
+content_style:
+'body{font-family:Segoe UI;font-size:14px}',
+
+setup:function(editor){
+
+editor.on('init',function(){
+editorInitialized = true
+})
+
+}
+
+})
+
+}
+
+// function showToast(msg){
+
+// let toast = document.getElementById("toast")
+
+// toast.innerText = msg
+
+// toast.classList.add("show")
+
+// setTimeout(()=>{
+// toast.classList.remove("show")
+// },2500)
+
+// }
+
+let attachments = []
+
+document.addEventListener("change",function(e){
+
+if(e.target.id === "fileInput"){
+
+let file = e.target.files[0]
+
+attachments.push(file)
+
+renderAttachments()
+
+}
+
+})
+
+function renderAttachments(){
+
+let list = document.getElementById("attachmentList")
+
+if(!list) return
+
+list.innerHTML = ""
+
+attachments.forEach((file,index)=>{
+
+let item = document.createElement("div")
+
+item.className = "attachment-item"
+
+if(file.type.startsWith("image")){
+
+item.innerHTML = `
+<img src="${URL.createObjectURL(file)}" style="width:40px;height:40px;border-radius:4px">
+${file.name}
+<span class="attachment-remove" onclick="removeAttachment(${index})">✕</span>
+`
+
+}else{
+
+item.innerHTML = `
+📎 ${file.name}
+<span class="attachment-remove" onclick="removeAttachment(${index})">✕</span>
+`
+
+}
+
+list.appendChild(item)
+
+})
+
+}
+
+function removeAttachment(i){
+
+attachments.splice(i,1)
+
+renderAttachments()
+
+}
+
+
+document.addEventListener("paste",function(e){
+
+let items = (e.clipboardData || e.originalEvent.clipboardData).items
+
+for(let i=0;i<items.length;i++){
+
+let item = items[i]
+
+if(item.type.indexOf("image") !== -1){
+
+let file = item.getAsFile()
+
+attachments.push(file)
+
+renderAttachments()
+
+}
+
+}
+
+})
+function initDragAttachment(){
+
+let composeBox = document.querySelector(".compose-box")
+
+if(!composeBox) return
+
+composeBox.addEventListener("dragover",function(e){
+
+e.preventDefault()
+
+composeBox.classList.add("dragging")
+
+})
+
+composeBox.addEventListener("dragleave",function(){
+
+composeBox.classList.remove("dragging")
+
+})
+
+composeBox.addEventListener("drop",function(e){
+
+e.preventDefault()
+
+composeBox.classList.remove("dragging")
+
+let files = e.dataTransfer.files
+
+for(let i=0;i<files.length;i++){
+
+attachments.push(files[i])
+
+}
+
+renderAttachments()
+
+ undoManager.notify(files.length+" file attached")
+
+})
+
+}
+
+let recipientBox = document.getElementById("mailTo")
+let suggestionBox = document.getElementById("recipientSuggestions")
+
+if(recipientBox){
+
+recipientBox.addEventListener("keyup",async function(){
+
+let q = this.value.trim()
+
+if(q.length < 2){
+
+suggestionBox.style.display = "none"
+return
+
+}
+
+let res = await fetch('/api/recipients?q='+encodeURIComponent(q))
+let data = await res.json()
+
+suggestionBox.innerHTML = ""
+
+data.emails.forEach(email=>{
+
+let div = document.createElement("div")
+
+div.className = "suggestion-item"
+
+div.innerHTML = `
+<div>${email.split("@")[0]}</div>
+<div class="suggestion-email">${email}</div>
+`
+
+div.onclick = function(){
+
+recipientBox.value = email
+
+suggestionBox.style.display = "none"
+
+}
+
+suggestionBox.appendChild(div)
+
+})
+
+if(data.emails.length){
+suggestionBox.style.display = "block"
+}else{
+suggestionBox.style.display = "none"
+}
+
+})
+
+document.addEventListener("click",function(e){
+
+if(!recipientBox.contains(e.target)){
+suggestionBox.style.display = "none"
+}
+
+})
+
+}
+
+function initRecipientAutocomplete(){
+
+let recipientBox = document.getElementById("mailTo")
+let suggestionBox = document.getElementById("recipientSuggestions")
+
+if(!recipientBox || !suggestionBox) return
+
+recipientBox.addEventListener("keyup",async function(){
+
+let q = this.value.trim()
+
+if(q.length < 2){
+suggestionBox.style.display="none"
+return
+}
+
+let res = await fetch('/api/recipients?q='+encodeURIComponent(q))
+let data = await res.json()
+
+suggestionBox.innerHTML=""
+
+data.emails.forEach(email=>{
+
+let div=document.createElement("div")
+
+div.className="suggestion-item"
+
+div.innerHTML=`
+<div>${email.split("@")[0]}</div>
+<div class="suggestion-email">${email}</div>
+`
+
+div.onclick=function(){
+recipientBox.value=email
+suggestionBox.style.display="none"
+}
+
+suggestionBox.appendChild(div)
+
+})
+
+suggestionBox.style.display=data.emails.length ? "block":"none"
+
+})
+
+document.addEventListener("click",function(e){
+
+if(!recipientBox.contains(e.target)){
+suggestionBox.style.display="none"
+}
+
+})
+
+}
+
+function toggleCc(){
+
+let row = document.getElementById("ccRow")
+
+row.style.display =
+row.style.display === "none" ? "flex" : "none"
+
+}
+
+function toggleBcc(){
+
+let row = document.getElementById("bccRow")
+
+row.style.display =
+row.style.display === "none" ? "flex" : "none"
+
+}
+
+let recipients = []
+
+let input = document.getElementById("mailToInput")
+
+if(input){
+
+input.addEventListener("keydown",function(e){
+
+if(e.key === "Enter" || e.key === "," || e.key === "Tab"){
+
+e.preventDefault()
+
+let email = input.value.trim().replace(',','')
+
+if(email){
+addRecipient(email)
+}
+
+input.value = ""
+
+}
+
+})
+
+}
+
+
+function addRecipient(email){
+
+if(recipients.includes(email)) return
+
+recipients.push(email)
+
+let chip = document.createElement("div")
+
+chip.className = "recipient-chip"
+
+chip.innerHTML = `
+${email}
+<span class="recipient-remove">×</span>
+`
+
+chip.querySelector(".recipient-remove").onclick = ()=>{
+chip.remove()
+recipients = recipients.filter(e=>e !== email)
+}
+
+document
+.getElementById("toContainer")
+.insertBefore(chip,document.getElementById("mailToInput"))
+
+}
+function initRecipientChips(){
+
+let input = document.getElementById("mailToInput")
+
+if(!input) return
+
+input.addEventListener("keydown",function(e){
+
+if(e.key === "Enter" || e.key === "," || e.key === "Tab"){
+
+e.preventDefault()
+
+let email = input.value.trim().replace(',','')
+
+if(email){
+addRecipient(email)
+}
+
+input.value = ""
+
+}
+
+})
+
+}
+
+function preloadRecipients(){
+
+let input = document.getElementById("mailToInput")
+
+if(!input) return
+
+let emails = input.value
+
+if(!emails) return
+
+input.value = ""
+
+emails.split(",").forEach(email=>{
+addRecipient(email.trim())
+})
+
+}
+
+
+async function replyMail(id){
+
+let preview = document.querySelector('.mail-preview')
+
+preview.innerHTML = skeletonPreview()
+
+let res = await fetch('/mail/reply/'+id)
+
+let html = await res.text()
+
+preview.innerHTML = html
+
+initEditor()
+initDragAttachment()
+initRecipientAutocomplete()
+initRecipientChips()
+preloadRecipients()
+
+}
+
+
+async function replyAllMail(id){
+
+let preview = document.querySelector('.mail-preview')
+
+preview.innerHTML = skeletonPreview()
+
+let res = await fetch('/mail/reply-all/'+id)
+
+let html = await res.text()
+
+preview.innerHTML = html
+
+initEditor()
+initDragAttachment()
+initRecipientAutocomplete()
+initRecipientChips()
+preloadRecipients()
+
+}
+
+
+async function forwardMail(id){
+
+let preview = document.querySelector('.mail-preview')
+
+preview.innerHTML = skeletonPreview()
+
+let res = await fetch('/mail/forward/'+id)
+
+let html = await res.text()
+
+preview.innerHTML = html
+
+initEditor()
+initDragAttachment()
+initRecipientAutocomplete()
+initRecipientChips()
+preloadRecipients()
+
+}
+
+
+async function emptyTrash(){
+
+if(!confirm("Empty Deleted Items?")) return
+
+await fetch('/mail/empty-trash')
+
+undoManager.notify("Trash emptied")
+
+loadFolder("deleteditems","Deleted Items")
+
+
+}
+
+function toggleTrashButtons(){
+
+let trashBtn = document.getElementById("emptyTrashBtn")
+let recoverBtn = document.getElementById("recoverBtn")
+
+if(!trashBtn || !recoverBtn) return
+
+let folder = currentFolder.toLowerCase()
+
+if(folder.includes("deleted")){
+
+trashBtn.style.display = "inline-block"
+recoverBtn.style.display = "inline-block"
+
+}else{
+
+trashBtn.style.display = "none"
+recoverBtn.style.display = "none"
+
+}
+
+}
+
+
+async function recoverSelected(){
+
+let ids = getSelectedEmails()
+
+if(!ids.length){
+alert("Select email first")
+return
+}
+
+for(let id of ids){
+
+await fetch('/mail/recover/'+id)
+
+let el = document.querySelector('.mail-item[mail-id="'+id+'"]')
+
+if(el) el.remove()
+
+}
+
+undoManager.notify("Message restored")
+folderCache = {}
+
+}
+
+let firstDelta = true
+let processedIds = new Set()
+
+async function checkNewMail(){
+
+let res = await fetch('/mail/delta')
+let mails = await res.json()
+
+if(!Array.isArray(mails) || !mails.length) return
+
+if(firstDelta){
+
+mails.forEach(mail=>{
+processedIds.add(mail.id)
+})
+
+firstDelta = false
+return
+}
+
+let container = document.querySelector('.mail-list')
+
+mails.forEach(mail=>{
+
+/* EMAIL DIHAPUS */
+
+if(mail['@removed']){
+
+let folderId = mail.parentFolderId || inboxFolderId
+
+if(folderId){
+updateFolderUnread(folderId,-1)
+}
+
+
+return
+}
+
+/* EMAIL BARU */
+
+if(!processedIds.has(mail.id)){
+
+processedIds.add(mail.id)
+
+/* CEK EMAIL LAMA / BARU */
+let mailDate = new Date(mail.receivedDateTime || mail.received)
+let now = new Date()
+let diffMinutes = (now - mailDate) / 60000
+
+/* kalau email lebih dari 2 menit, jangan anggap notifikasi baru */
+if(diffMinutes > 2){
+    return
+}
+
+let folderId = mail.parentFolderId || inboxFolderId
+
+if(folderId){
+updateFolderUnread(folderId,1)
+}
+
+
+/* insert inbox */
+
+if(currentFolder.toLowerCase().includes("inbox")){
+
+/* ambil template email dari server */
+
+fetch('/mail/item/'+mail.id)
+
+.then(res=>res.text())
+
+.then(html=>{
+
+container.insertAdjacentHTML("afterbegin",html)
+
+/* ambil item baru */
+
+let newItem = container.querySelector('.mail-item[mail-id="'+mail.id+'"]')
+
+if(!newItem) return
+
+/* bind checkbox */
+
+let cb = newItem.querySelector('.mail-checkbox')
+
+if(cb){
+
+cb.addEventListener("click",function(e){
+
+e.stopPropagation()
+
+let id = newItem.getAttribute("mail-id")
+
+if(cb.checked){
+
+newItem.classList.add("selected")
+selectedMails.add(id)
+
+}else{
+
+newItem.classList.remove("selected")
+selectedMails.delete(id)
+
+}
+
+updateBulkUI()
+
+})
+
+}
+
+})
+
+}
+
+showMailNotification(mail)
+
+}
+
+/* MARK READ */
+
+if(mail.isRead === true){
+
+let folderId = mail.parentFolderId || inboxFolderId
+
+if(folderId){
+updateFolderUnread(folderId,-1)
+}
+
+}
+
+/* MARK UNREAD */
+
+if(mail.isRead === false && !processedIds.has(mail.id)){
+updateFolderUnread(mail.parentFolderId,1)
+}
+
+})
+
+}
+
+
+
+
+setInterval(()=>{
+
+
+
+checkNewMail()
+
+},3000)
+
+
+async function createFolder(){
+
+let name = prompt("Folder name")
+
+if(!name) return
+
+await fetch('/folder/create',{
+
+method:"POST",
+
+headers:{
+"Content-Type":"application/json",
+"X-CSRF-TOKEN":document.querySelector('meta[name="csrf-token"]').content
+},
+
+body:JSON.stringify({name:name})
+
+})
+
+location.reload()
+
+}
+
+
+let draggedMails = []
+
+document.querySelector('.mail-list').addEventListener("dragstart",function(e){
+
+let item = e.target.closest(".mail-item")
+if(!item) return
+
+/* cek email yang dicentang */
+draggedMails = []
+
+if(selectedMails.size){
+
+draggedMails = Array.from(selectedMails)
+
+}else{
+
+draggedMails = [item.getAttribute('mail-id')]
+
+}
+
+
+
+
+/* === DRAG PREVIEW ICON === */
+
+let dragIcon = document.createElement("div")
+
+dragIcon.style.position = "absolute"
+dragIcon.style.top = "-1000px"
+
+dragIcon.style.padding = "6px 10px"
+dragIcon.style.background = "#106ebe"
+dragIcon.style.color = "white"
+dragIcon.style.borderRadius = "4px"
+dragIcon.style.fontSize = "13px"
+
+dragIcon.innerText = draggedMails.length + (draggedMails.length > 1 ? " items" : " item")
+
+document.body.appendChild(dragIcon)
+
+e.dataTransfer.setDragImage(dragIcon,0,0)
+
+
+setTimeout(()=>{
+dragIcon.remove()
+},0)
+
+
+})
+
+
+
+
+
+
+
+document.querySelectorAll(".folder").forEach(folder=>{
+
+folder.addEventListener("dragover",function(e){
+e.preventDefault()
+this.classList.add("drag-over")
+})
+
+folder.addEventListener("dragleave",function(){
+this.classList.remove("drag-over")
+})
+
+folder.addEventListener("drop",async function(e){
+
+e.preventDefault()
+
+this.classList.remove("drag-over")
+
+let folderId = this.dataset.id
+
+await fetch("/mail/move",{
+
+method:"POST",
+
+headers:{
+"Content-Type":"application/json",
+"X-CSRF-TOKEN":document.querySelector('meta[name="csrf-token"]').content
+},
+
+body:JSON.stringify({
+ids:draggedMails,
+folder:folderId
+})
+
+
+})
+
+undoManager.notify("Email moved")
+
+draggedMails.forEach(id=>{
+let el = document.querySelector(`[mail-id="${id}"]`)
+
+if(el) el.remove()
+})
+
+
+
+
+})
+
+})
+
+document.querySelector('.mail-list').addEventListener("mousedown",function(e){
+
+let item = e.target.closest(".mail-item")
+
+if(!item) return
+
+item.setAttribute("draggable","true")
+
+})
+
+function selectMail(event, el){
+
+let items = [...document.querySelectorAll('.mail-item')]
+let index = items.indexOf(el)
+
+if(event.shiftKey && lastSelectedIndex !== null){
+
+let start = Math.min(index,lastSelectedIndex)
+let end = Math.max(index,lastSelectedIndex)
+
+items.forEach(i=>selectItem(i,false))
+
+for(let i=start;i<=end;i++){
+selectItem(items[i],true)
+}
+
+}
+else if(event.ctrlKey || event.metaKey){
+
+toggleItem(el)
+
+}
+else{
+
+items.forEach(i=>selectItem(i,false))
+selectItem(el,true)
+
+}
+
+lastSelectedIndex = index
+
+}
+
+
+
+function selectItem(el,state){
+
+let id = el.getAttribute("mail-id")
+
+if(state){
+
+el.classList.add("selected")
+
+let cb = el.querySelector(".mail-checkbox")
+if(cb) cb.checked = true
+
+selectedMails.add(id)
+
+}else{
+
+el.classList.remove("selected")
+
+let cb = el.querySelector(".mail-checkbox")
+if(cb) cb.checked = false
+
+selectedMails.delete(id)
+
+}
+
+updateBulkUI()
+
+}
+
+
+function toggleItem(el){
+
+let selected = el.classList.contains("selected")
+
+selectItem(el,!selected)
+
+updateBulkUI()
+
+}
+
+document.addEventListener("click",function(e){
+
+if(!e.target.classList.contains("mail-checkbox")) return
+
+e.stopPropagation()
+
+let item = e.target.closest(".mail-item")
+
+if(e.target.checked){
+item.classList.add("selected")
+}else{
+item.classList.remove("selected")
+}
+
+})
+
+function handleMailClick(event, el, id){
+
+selectMail(event, el)
+
+let selected = document.querySelectorAll('.mail-item.selected')
+
+if(selected.length > 1){
+updateBulkUI()
+return
+}
+
+if(event.ctrlKey || event.shiftKey || event.metaKey){
+return
+}
+
+openMail(id, el)
+
+}
+
+
+
+document.addEventListener("keydown",function(e){
+
+/* jika sedang mengetik di input / textarea */
+let tag = document.activeElement.tagName.toLowerCase()
+
+if(tag === "input" || tag === "textarea" || document.activeElement.isContentEditable){
+return
+}
+
+if((e.ctrlKey || e.metaKey) && e.key === "a"){
+
+e.preventDefault()
+
+document.querySelectorAll('.mail-item')
+.forEach(el=>selectItem(el,true))
+
+}
+
+})
+
+document.querySelector('.mail-list').addEventListener("click",function(e){
+
+
+    if(e.target.classList.contains("mail-checkbox")){
+e.stopPropagation()
+}
+
+let item = e.target.closest(".mail-item")
+if(!item) return
+
+let id = item.getAttribute("mail-id")
+
+selectMail(e,item)
+
+let selected = document.querySelectorAll('.mail-item.selected')
+
+/* jika multi select → jangan buka preview */
+if(selected.length > 1){
+updateBulkUI()
+return
+}
+
+/* jika ctrl / shift */
+if(e.ctrlKey || e.shiftKey || e.metaKey){
+return
+}
+
+openMail(id,item)
+
+})
+
+
+// document.querySelector('.mail-list').addEventListener("click",function(e){
+
+// if(e.target.classList.contains("mail-checkbox")){
+// e.stopPropagation()
+// }
+
+// })
+
+function updateBulkUI(){
+
+let selected = document.querySelectorAll('.mail-item.selected')
+let preview = document.querySelector('.mail-preview')
+
+if(selected.length > 1){
+
+    previewRequest++;
+
+let restoreBtn = ""
+
+if(currentFolder.toLowerCase().includes("deleted")){
+restoreBtn = `<button onclick="recoverSelected()">♻ Restore</button>`
+}
+
+preview.innerHTML = `
+<div style="text-align:center;margin-top:80px">
+
+<div style="font-size:60px">📨</div>
+
+<h2>${selected.length} items selected</h2>
+
+<div style="margin-top:30px;display:flex;flex-direction:column;gap:10px;align-items:center">
+
+<button onclick="deleteSelected()">🗑 Delete</button>
+
+<button onclick="archiveSelected()">📦 Archive</button>
+
+<button onclick="markReadSelected()">✔ Mark as read</button>
+
+${restoreBtn}
+
+<button onclick="clearSelection()">✖ Cancel</button>
+
+</div>
+
+</div>
+`
+
+}
+
+}
+
+
+
+function clearSelection(){
+selectedMails.clear()
+
+document.querySelectorAll('.mail-item')
+.forEach(el=>{
+selectItem(el,false)
+})
+
+document.querySelector('.mail-preview').innerHTML = `
+<div class="empty-preview">
+📧
+<br>
+Select an email to read
+</div>
+`
+
+}
+
+document.addEventListener("keydown",function(e){
+
+let selected = document.querySelector(".mail-item.active")
+if(!selected) return
+
+let id = selected.getAttribute("mail-id")
+
+switch(e.key.toLowerCase()){
+
+case "delete":
+deleteMail(id)
+break
+
+
+
+}
+
+})
+
+
+</script>
+
+<script>
+   function showMailNotification(mail){
+
+let container = document.getElementById("mailNotifications")
+
+let letter = (mail.from ?? "U")[0].toUpperCase()
+
+let el = document.createElement("div")
+
+el.className = "mail-notification"
+
+el.innerHTML = `
+
+<div class="mail-notification-avatar">
+${letter}
+</div>
+
+<div class="mail-notification-content">
+
+<div class="mail-notification-from">
+${mail.from ?? "Unknown"}
+</div>
+
+<div class="mail-notification-subject">
+${mail.subject ?? "(No subject)"}
+</div>
+
+<div class="mail-notification-preview">
+${mail.bodyPreview ?? ""}
+</div>
+
+</div>
+
+<div class="mail-notification-close">✕</div>
+
+`
+el.querySelector(".mail-notification-close").onclick = function(e){
+
+e.stopPropagation()
+
+el.style.opacity = 0
+el.style.transform = "translateX(60px)"
+
+setTimeout(()=>el.remove(),250)
+
+}
+
+
+/* klik notification */
+el.onclick = async function(){
+
+if(!currentFolder.toLowerCase().includes("inbox")){
+
+await loadFolder(inboxFolderId,"Inbox")
+
+setTimeout(()=>{
+
+let mailItem = document.querySelector(`[mail-id="${mail.id}"]`)
+
+if(mailItem){
+openMail(mail.id, mailItem)
+}
+
+},400)
+
+}else{
+
+let mailItem = document.querySelector(`[mail-id="${mail.id}"]`)
+
+if(mailItem){
+openMail(mail.id, mailItem)
+}
+
+}
+
+el.remove()
+
+}
+
+/* MASUKKAN KE CONTAINER */
+container.prepend(el)
+
+/* AUTO HIDE */
+setTimeout(()=>{
+
+el.style.opacity = 0
+el.style.transform = "translateX(60px)"
+
+setTimeout(()=>{
+el.remove()
+},300)
+
+},5000)
+
+}
+
+function updateFolderUnread(folderId, delta){
+
+let folder = folderMap[folderId]
+
+if(!folder) return
+
+let counter = folder.querySelector(".folder-count")
+
+/* jika belum ada counter → buat */
+
+if(!counter){
+
+counter = document.createElement("span")
+counter.className = "folder-count"
+counter.innerText = "0"
+
+folder.appendChild(counter)
+
+}
+
+let count = parseInt(counter.innerText || 0)
+
+count += delta
+
+if(count < 0) count = 0
+
+counter.innerText = count
+
+}
+
+
+</script>
+
+<script>
+function previewAttachment(messageId, attachmentId, type){
+
+let url = `/mail/attachment/${messageId}/${attachmentId}`
+
+let preview = document.querySelector('.mail-preview')
+
+type = type || ""
+
+/* simpan preview email sebelumnya */
+if(!lastEmailPreview){
+lastEmailPreview = preview.innerHTML
+}
+
+preview.innerHTML = `
+
+<div style="height:100%;display:flex;flex-direction:column">
+
+<div style="
+padding:10px;
+border-bottom:1px solid #eee;
+display:flex;
+gap:10px;
+align-items:center;
+background:#f8f8f8
+">
+
+<button onclick="closeAttachmentPreview()">← Back</button>
+
+<button onclick="window.open('${url}')">Open</button>
+
+<button onclick="window.location='${url}'">Download</button>
+
+<div style="margin-left:auto;font-size:20px;cursor:pointer"
+onclick="closeAttachmentPreview()">✕</div>
+
+</div>
+
+<div style="flex:1">
+
+<iframe src="${url}" style="width:100%;height:100%;border:none"></iframe>
+
+</div>
+
+</div>
+`
+}
+
+
+function closeAttachmentPreview(){
+
+let preview = document.querySelector('.mail-preview')
+
+if(lastEmailPreview){
+preview.innerHTML = lastEmailPreview
+lastEmailPreview = null
+}
+
+}
+
+
+document.addEventListener("keydown",function(e){
+
+if(e.key === "Escape"){
+closeAttachmentPreview()
+}
+
+})
+
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/tinymce@6/tinymce.min.js"></script>
+
+
+<div id="attachmentViewer" class="attachment-viewer">
+
+<div class="attachment-toolbar">
+
+<button onclick="prevAttachment()">◀</button>
+<button onclick="nextAttachment()">▶</button>
+
+<div class="attachment-title" id="attachmentTitle"></div>
+
+<div class="attachment-actions">
+
+<button onclick="openAttachment()">
+<i class="fa-solid fa-arrow-up-right-from-square"></i>
+</button>
+
+<button onclick="downloadAttachment()">
+<i class="fa-solid fa-download"></i>
+</button>
+
+<div class="attachment-close" onclick="closeAttachmentViewer()">✕</div>
+
+</div>
+
+</div>
+
+<div class="attachment-body" id="attachmentBody"></div>
+
+</div>
+<script>
+  let viewerAttachments = []
+let currentAttachment = 0
+
+function openAttachmentViewer(messageId, list, index){
+
+viewerAttachments = list.map(file => ({
+id: file.id,
+messageId: messageId,
+name: file.name,
+type: file.contentType
+}))
+
+currentAttachment = index
+
+document.getElementById("attachmentViewer").style.display = "flex"
+
+renderAttachment()
+
+}
+
+function renderAttachment(){
+
+let file = viewerAttachments[currentAttachment]
+
+let url = `/mail/attachment/${file.messageId}/${file.id}`
+
+document.getElementById("attachmentTitle").innerText = file.name
+
+let body = document.getElementById("attachmentBody")
+
+if(file.type.includes("image")){
+
+body.innerHTML = `
+<img src="${url}" style="max-width:90%;max-height:90%">
+`
+
+}else{
+
+body.innerHTML = `
+<iframe src="${url}"></iframe>
+`
+
+}
+
+}
+
+function nextAttachment(){
+
+if(currentAttachment < viewerAttachments.length-1){
+
+currentAttachment++
+renderAttachment()
+
+}
+
+}
+
+function prevAttachment(){
+
+if(currentAttachment > 0){
+
+currentAttachment--
+renderAttachment()
+
+}
+
+}
+
+function closeAttachmentViewer(){
+
+document.getElementById("attachmentViewer").style.display="none"
+
+}
+
+function openAttachment(){
+
+let file = viewerAttachments[currentAttachment]
+
+let url = `/mail/attachment/${file.messageId}/${file.id}`
+
+window.open(url)
+
+}
+
+function downloadAttachment(){
+
+let file = viewerAttachments[currentAttachment]
+
+let url = `/mail/attachment/${file.messageId}/${file.id}`
+
+window.location = url
+
+}
+document.addEventListener("keydown",function(e){
+
+let viewer = document.getElementById("attachmentViewer")
+
+if(viewer.style.display !== "flex") return
+
+if(e.key === "Escape"){
+closeAttachmentViewer()
+}
+
+if(e.key === "ArrowRight"){
+nextAttachment()
+}
+
+if(e.key === "ArrowLeft"){
+prevAttachment()
+}
+
+})
+
+</script>
+<script>
+  let searchTimer
+
+document.getElementById("mailSearch").addEventListener("keyup",function(){
+
+clearTimeout(searchTimer)
+
+let q = this.value.trim()
+
+searchTimer = setTimeout(()=>{
+
+if(q.length < 2){
+
+searchMode = false
+searchQuery = ""
+
+loadFolder(inboxFolderId,"Inbox")
+return
+
+}
+
+liveSearch(q)
+
+},300)
+
+})
+
+function escapeHtml(text){
+
+if(!text) return ""
+
+return text
+.replace(/&/g,"&amp;")
+.replace(/</g,"&lt;")
+.replace(/>/g,"&gt;")
+.replace(/"/g,"&quot;")
+.replace(/'/g,"&#039;")
+
+}
+
+function formatMailDate(dateStr){
+
+if(!dateStr) return ""
+
+let date = new Date(dateStr)
+let now = new Date()
+
+let diffDays = Math.floor((now - date) / 86400000)
+
+if(diffDays === 0){
+    return date.toLocaleTimeString([],{
+        hour:'2-digit',
+        minute:'2-digit'
+    })
+}
+
+if(diffDays === 1){
+    return "Yesterday"
+}
+
+if(diffDays < 7){
+    return date.toLocaleDateString([],{
+        weekday:'short'
+    })
+}
+
+/* tahun sama */
+
+if(date.getFullYear() === now.getFullYear()){
+    return date.toLocaleDateString([],{
+        month:'short',
+        day:'numeric'
+    })
+}
+
+/* tahun berbeda */
+
+return date.getFullYear()
+
+}
+</script>
+<script>
+    function addSearch(token){
+
+let box = document.getElementById("mailSearch")
+
+box.value = box.value + " " + token
+
+box.focus()
+
+}
+</script>
+<script>
+    async function deleteFolder(id){
+
+if(!confirm("Delete this folder?\nEmails will move to Deleted Items.")){
+return
+}
+
+await fetch('/folder/delete/'+id,{
+method:'DELETE',
+headers:{
+'X-CSRF-TOKEN':document.querySelector('meta[name="csrf-token"]').content
+}
+})
+
+undoManager.notify("Folder deleted")
+
+location.reload()
+
+}
+
+document.querySelectorAll(".folder-name").forEach(el=>{
+
+el.addEventListener("dblclick",function(e){
+
+e.stopPropagation()
+
+let folder = el.closest(".folder")
+let id = folder.dataset.id
+
+let current = el.innerText
+
+let input = document.createElement("input")
+
+input.value = current
+input.style.width = "100%"
+input.className = "folder-rename-input"
+
+el.replaceWith(input)
+
+input.focus()
+
+input.addEventListener("blur",()=>saveRename(id,input))
+
+input.addEventListener("keydown",e=>{
+
+if(e.key === "Enter"){
+saveRename(id,input)
+}
+
+})
+
+})
+
+})
+
+async function saveRename(id,input){
+
+let name = input.value.trim()
+
+if(!name){
+location.reload()
+return
+}
+
+await fetch('/folder/rename/'+id,{
+method:'PATCH',
+headers:{
+'Content-Type':'application/json',
+'X-CSRF-TOKEN':document.querySelector('meta[name="csrf-token"]').content
+},
+body:JSON.stringify({name:name})
+})
+
+undoManager.notify("Folder renamed")
+
+location.reload()
+
+}
+
+let currentFolderMenu = null
+
+document.querySelectorAll(".folder").forEach(folder=>{
+
+folder.addEventListener("contextmenu",function(e){
+
+e.preventDefault()
+
+currentFolderMenu = folder.dataset.id
+
+let menu = document.getElementById("folderMenu")
+
+menu.style.left = e.pageX+"px"
+menu.style.top = e.pageY+"px"
+
+menu.style.display = "block"
+
+})
+
+})
+
+document.addEventListener("click",function(){
+document.getElementById("folderMenu").style.display="none"
+})
+
+function menuRename(){
+
+let folder = document.querySelector(`.folder[data-id="${currentFolderMenu}"]`)
+
+let name = folder.querySelector(".folder-name")
+
+name.dispatchEvent(new Event("dblclick"))
+
+}
+
+function menuDelete(){
+
+deleteFolder(currentFolderMenu)
+
+}
+
+function menuCreate(){
+
+createFolder()
+
+}
+</script>
+
+<script>
+    async function markRead(id){
+
+await fetch('/mail/read/'+id)
+
+let item = document.querySelector('.mail-item[mail-id="'+id+'"]')
+
+if(!item) return
+
+
+/* REMOVE UNREAD CLASS */
+
+if(item.classList.contains('unread')){
+
+item.classList.remove('unread')
+
+let folder = document.querySelector(".folder.active")
+
+if(folder){
+updateFolderUnread(folder.dataset.id,-1)
+}
+
+}
+
+
+/* REMOVE DOT */
+
+let dot = item.querySelector('.unread-dot')
+
+if(dot){
+
+dot.style.transition = "opacity .25s ease"
+dot.style.opacity = 0
+
+setTimeout(()=>{
+dot.remove()
+},250)
+
+}
+
+
+/* UPDATE ACTION ICON */
+
+let actions = item.querySelector('.mail-right')
+
+if(actions){
+
+let btn = actions.querySelector('.mark-read')
+
+if(btn){
+btn.remove()
+}
+
+}
+
+undoManager.notify("Marked as read")
+}
+</script>
+<script>
+    function openSettings(){
+
+let overlay = document.getElementById("settingsOverlay")
+
+overlay.style.display = "flex"
+
+loadRules()
+
+}
+
+function closeSettings(){
+
+document.getElementById("settingsOverlay").style.display = "none"
+
+}
+
+async function loadRules(){
+
+let container = document.getElementById("settingsContent")
+
+container.innerHTML = "Loading..."
+
+let res = await fetch('/settings/rules')
+
+let html = await res.text()
+
+container.innerHTML = html
+
+}
+</script>
+<div id="folderMenu" class="folder-menu">
+
+<div onclick="menuRename()">Rename</div>
+
+<div onclick="menuDelete()">Delete</div>
+
+<div onclick="menuCreate()">New Subfolder</div>
+
+</div>
+
+<div id="settingsOverlay" class="settings-overlay">
+
+<div class="settings-panel">
+
+<div class="settings-header">
+
+<div>Settings</div>
+
+<div class="settings-close" onclick="closeSettings()">✕</div>
+
+</div>
+
+<div class="settings-body">
+
+<div class="settings-sidebar">
+
+<div class="settings-item active"
+onclick="loadRules()">
+
+<i class="fa-solid fa-filter"></i>
+Rules
+
+</div>
+
+</div>
+
+<div class="settings-content" id="settingsContent">
+
+Loading...
+
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+<script>
+    async function createRule(){
+
+let name = document.getElementById("ruleName").value
+
+let type = document.getElementById("conditionType").value
+
+let value = document.getElementById("conditionValue").value
+
+let deleteAction = document.getElementById("ruleDelete").checked
+
+let readAction = document.getElementById("ruleRead").checked
+
+let folder = document.getElementById("ruleFolder").value
+
+let body = {
+
+displayName:name,
+
+sequence:1,
+
+isEnabled:true,
+
+conditions:{},
+
+actions:{}
+
+}
+
+body.conditions[type] = [value]
+
+if(deleteAction)
+body.actions.delete = true
+
+if(readAction)
+body.actions.markAsRead = true
+
+if(folder)
+body.actions.moveToFolder = folder
+
+
+await fetch('/settings/rules',{
+
+method:'POST',
+
+headers:{
+'Content-Type':'application/json',
+'X-CSRF-TOKEN':
+document.querySelector('meta[name="csrf-token"]').content
+},
+
+body:JSON.stringify(body)
+
+})
+
+loadRules()
+
+}
+
+async function deleteRule(id){
+
+if(!confirm("Delete this rule?")) return
+
+await fetch('/settings/rules/'+id,{
+
+method:'DELETE',
+
+headers:{
+'X-CSRF-TOKEN':
+document.querySelector('meta[name="csrf-token"]').content
+}
+
+})
+
+loadRules()
+
+}
+</script>
+<div id="onedrivePanel" class="onedrive-panel">
+
+<div class="onedrive-header">
+
+<div>
+<i class="fa-solid fa-cloud"></i>
+OneDrive
+</div>
+
+<div onclick="closeOneDrive()" class="onedrive-close">✕</div>
+
+</div>
+
+<div class="onedrive-body" id="onedriveFiles">
+
+Loading...
+
+</div>
+
+</div>
+<script>
+    
+let oneDriveHistory = []
+let oneDriveCache = {}
+async function openOneDrive(){
+
+let panel = document.getElementById("onedrivePanel")
+panel.style.display = "flex"
+
+oneDriveHistory = []
+
+loadOneDriveFiles()
+
+}
+
+function closeOneDrive(){
+
+document.getElementById("onedrivePanel").style.display = "none"
+
+}
+
+async function loadOneDriveFiles(){
+
+if(oneDriveCache["root"]){
+renderOneDriveFiles(oneDriveCache["root"])
+return
+}
+
+let res = await fetch("/onedrive/files")
+let files = await res.json()
+
+oneDriveCache["root"] = files
+
+renderOneDriveFiles(files)
+
+}
+
+async function loadOneDriveFolder(id, pushHistory = true){
+
+let container = document.getElementById("onedriveFiles")
+
+if(pushHistory){
+oneDriveHistory.push(id)
+}
+
+/* CACHE CHECK */
+
+if(oneDriveCache[id]){
+renderOneDriveFiles(oneDriveCache[id])
+return
+}
+
+container.innerHTML = "Loading..."
+
+let res = await fetch("/onedrive/folder/" + id)
+
+let files = await res.json()
+
+oneDriveCache[id] = files
+
+renderOneDriveFiles(files)
+
+}
+function goOneDriveBack(){
+
+oneDriveHistory.pop()
+
+if(!oneDriveHistory.length){
+
+renderOneDriveFiles(oneDriveCache["root"])
+return
+
+}
+
+let last = oneDriveHistory[oneDriveHistory.length-1]
+
+loadOneDriveFolder(last,false)
+
+}
+
+function renderOneDriveFiles(files){
+
+let container = document.getElementById("onedriveFiles")
+
+container.innerHTML = ""
+
+/* tombol back */
+
+if(oneDriveHistory.length){
+
+let back = document.createElement("div")
+
+back.className = "onedrive-file"
+
+back.innerHTML = `
+<i class="fa-solid fa-arrow-left"></i>
+<div>Back</div>
+`
+
+back.onclick = goOneDriveBack
+
+container.appendChild(back)
+
+}
+
+/* folder kosong */
+
+let list = files.value ?? files ?? []
+
+if(!list.length){
+
+let empty = document.createElement("div")
+
+empty.style.padding = "30px"
+empty.style.textAlign = "center"
+
+empty.innerHTML = "Nothing here"
+
+container.appendChild(empty)
+
+return
+}
+
+files.value.forEach(file=>{
+
+let icon = "fa-file"
+
+if(file.folder) icon = "fa-folder"
+
+if(file.file?.mimeType?.includes("image")) icon="fa-file-image"
+if(file.file?.mimeType?.includes("pdf")) icon="fa-file-pdf"
+
+let el = document.createElement("div")
+
+el.className = "onedrive-file"
+
+el.innerHTML = `
+<i class="fa-solid ${icon}"></i>
+<div>${file.name}</div>
+`
+
+el.onclick = ()=>openOneDriveFile(file)
+
+container.appendChild(el)
+
+})
+
+}
+
+async function openOneDriveFile(file){
+
+if(file.folder){
+
+loadOneDriveFolder(file.id)
+
+return
+
+}
+
+let url = file["@microsoft.graph.downloadUrl"]
+
+window.open(url)
+
+}
+</script>
+</body>
+</html>

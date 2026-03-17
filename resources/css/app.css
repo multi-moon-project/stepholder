@@ -1,0 +1,10 @@
+/* AdminLTE CSS */
+@import "admin-lte/dist/css/adminlte.min.css";
+
+/* FontAwesome */
+@import "@fortawesome/fontawesome-free/css/all.min.css";
+
+/* Tailwind */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
