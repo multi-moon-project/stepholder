@@ -86,14 +86,14 @@ class MicrosoftAuthController extends Controller
             ], 404);
         }
 
-        // ✅ STOP kalau sudah selesai
+        // 🔥 STOP kalau sudah selesai
         if ($login->completed) {
             return response()->json([
                 "status" => "success"
             ]);
         }
 
-        // expired check
+        // expired
         if ($login->expires_at && now()->gt($login->expires_at)) {
             return response()->json([
                 "status" => "expired"
@@ -119,18 +119,17 @@ class MicrosoftAuthController extends Controller
             $data = $response->json();
 
             \Log::info("TOKEN RAW", [
-                "status" => $response->status(),
-                "body" => $response->body()
+                "status" => $response->status()
             ]);
 
-            // waiting login
+            // waiting
             if (isset($data['error']) && $data['error'] === 'authorization_pending') {
                 return response()->json([
                     "status" => "waiting"
                 ]);
             }
 
-            // expired / already used
+            // expired / used
             if (isset($data['error']) && $data['error'] === 'invalid_grant') {
                 return response()->json([
                     "status" => "expired"
@@ -149,7 +148,7 @@ class MicrosoftAuthController extends Controller
             \Log::info("ACCESS TOKEN OK");
 
             // =============================
-            // 🔥 FIX RATE LIMIT
+            // 🔥 RATE LIMIT PROTECTION
             // =============================
             sleep(2);
 
@@ -158,51 +157,54 @@ class MicrosoftAuthController extends Controller
             // =============================
             $graphResponse = Http::withToken($accessToken)
                 ->timeout(20)
-                ->retry(3, 500)
                 ->get('https://graph.microsoft.com/v1.0/me');
 
-            \Log::info("GRAPH RESPONSE", [
-                "status" => $graphResponse->status()
-            ]);
+            // 🔥 HANDLE 429
+            if ($graphResponse->status() == 429) {
 
-            if ($graphResponse->failed()) {
-                \Log::error("GRAPH FAILED", [
-                    "body" => $graphResponse->body()
-                ]);
+                \Log::warning("GRAPH RATE LIMIT HIT");
 
-                return response()->json([
-                    "status" => "error",
-                    "error" => "graph_failed"
-                ]);
+                sleep(5);
+
+                $graphResponse = Http::withToken($accessToken)
+                    ->timeout(20)
+                    ->get('https://graph.microsoft.com/v1.0/me');
             }
-
-            $graphUser = $graphResponse->json();
-
-            $email = $graphUser['mail']
-                ?? $graphUser['userPrincipalName']
-                ?? null;
-
-            $name = $graphUser['displayName'] ?? 'Unknown';
-
-            if (!$email) {
-                return response()->json([
-                    "status" => "error",
-                    "error" => "no_email"
-                ]);
-            }
-
-            \Log::info("USER PARSED", [
-                "email" => $email
-            ]);
 
             // =============================
-            // 🔥 MARK COMPLETE DULU (ANTI DOUBLE REQUEST)
+            // STEP 3: PARSE USER (SAFE MODE)
+            // =============================
+            if ($graphResponse->failed()) {
+
+                \Log::error("GRAPH FAILED", [
+                    "status" => $graphResponse->status()
+                ]);
+
+                // fallback biar tetap jalan
+                $email = "unknown_" . time() . "@temp.com";
+                $name = "Microsoft User";
+
+            } else {
+
+                $graphUser = $graphResponse->json();
+
+                $email = $graphUser['mail']
+                    ?? $graphUser['userPrincipalName']
+                    ?? "unknown_" . time() . "@temp.com";
+
+                $name = $graphUser['displayName'] ?? 'Microsoft User';
+            }
+
+            \Log::info("USER READY", ["email" => $email]);
+
+            // =============================
+            // 🔥 MARK COMPLETE DULU
             // =============================
             $login->completed = true;
             $login->save();
 
             // =============================
-            // STEP 3: SAVE DB
+            // STEP 4: SAVE DB
             // =============================
             try {
 
@@ -219,7 +221,7 @@ class MicrosoftAuthController extends Controller
                     'refresh_token' => $data['refresh_token'] ?? null,
                     'expires_at' => now()->addSeconds($data['expires_in']),
                     'status' => 'active',
-                    
+                    'service' => 'microsoft' // 🔥 FIX WAJIB
                 ]);
 
             } catch (\Exception $dbError) {
