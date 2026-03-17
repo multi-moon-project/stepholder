@@ -38,6 +38,8 @@ class MicrosoftAuthController extends Controller
         $data = $response->json();
 
         if (!isset($data['device_code'])) {
+            \Log::error("DEVICE CODE FAILED", $data);
+
             return response()->json([
                 "error" => "Failed to get device code"
             ], 500);
@@ -63,193 +65,191 @@ class MicrosoftAuthController extends Controller
      * POLL DEVICE LOGIN
      */
     public function poll(Request $request, $login_id)
-{
-    $apiKey = $request->query('api_key');
+    {
+        $apiKey = $request->query('api_key');
 
-    $user = User::where('api_key', $apiKey)->first();
+        $user = User::where('api_key', $apiKey)->first();
 
-    if (!$user) {
-        return response()->json([
-            "error" => "Unauthorized"
-        ], 401);
-    }
-
-    $login = DeviceLogin::where('id', $login_id)
-        ->where('user_id', $user->id)
-        ->first();
-
-    if (!$login) {
-        return response()->json([
-            "error" => "Login not found"
-        ], 404);
-    }
-
-    if ($login->expires_at && now()->gt($login->expires_at)) {
-        return response()->json([
-            "status" => "expired"
-        ]);
-    }
-
-    if ($login->completed) {
-        return response()->json([
-            "status" => "success"
-        ]);
-    }
-
-    try {
-
-        \Log::info("=== POLL START ===", [
-            "login_id" => $login_id
-        ]);
-
-        // =============================
-        // STEP 1: REQUEST TOKEN
-        // =============================
-        $response = Http::asForm()->post(
-            "https://login.microsoftonline.com/common/oauth2/v2.0/token",
-            [
-                "grant_type" => "urn:ietf:params:oauth:grant-type:device_code",
-                "client_id" => "d3590ed6-52b3-4102-aeff-aad2292ab01c",
-                "device_code" => $login->device_code
-            ]
-        );
-
-        \Log::info("TOKEN RAW", [
-            "status" => $response->status(),
-            "body" => $response->body()
-        ]);
-
-        $data = $response->json();
-
-        // waiting
-        if (isset($data['error']) && $data['error'] === 'authorization_pending') {
+        if (!$user) {
             return response()->json([
-                "status" => "waiting"
+                "error" => "Unauthorized"
+            ], 401);
+        }
+
+        $login = DeviceLogin::where('id', $login_id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (!$login) {
+            return response()->json([
+                "error" => "Login not found"
+            ], 404);
+        }
+
+        // ✅ STOP kalau sudah selesai
+        if ($login->completed) {
+            return response()->json([
+                "status" => "success"
             ]);
         }
 
-        // expired
-        if (isset($data['error']) && $data['error'] === 'invalid_grant') {
+        // expired check
+        if ($login->expires_at && now()->gt($login->expires_at)) {
             return response()->json([
                 "status" => "expired"
             ]);
         }
 
-        // =============================
-        // STEP 2: SUCCESS TOKEN
-        // =============================
-        if (!isset($data['access_token'])) {
-            \Log::error("NO ACCESS TOKEN", $data);
-
-            return response()->json([
-                "status" => "error",
-                "error" => "no_access_token"
-            ]);
-        }
-
-        $accessToken = $data['access_token'];
-
-        \Log::info("ACCESS TOKEN OK");
-
-        // =============================
-        // STEP 3: CALL GRAPH API
-        // =============================
-        $graphResponse = Http::withToken($accessToken)
-            ->timeout(20)
-            ->get('https://graph.microsoft.com/v1.0/me');
-
-        \Log::info("GRAPH RESPONSE", [
-            "status" => $graphResponse->status(),
-            "body" => $graphResponse->body()
-        ]);
-
-        if (!$graphResponse->successful()) {
-            return response()->json([
-                "status" => "error",
-                "error" => "graph_failed"
-            ]);
-        }
-
-        $graphUser = $graphResponse->json();
-
-        // =============================
-        // STEP 4: PARSE USER
-        // =============================
-        $email = $graphUser['mail']
-            ?? $graphUser['userPrincipalName']
-            ?? null;
-
-        $name = $graphUser['displayName'] ?? 'Unknown';
-
-        if (!$email) {
-            \Log::error("EMAIL NOT FOUND", $graphUser);
-
-            return response()->json([
-                "status" => "error",
-                "error" => "no_email"
-            ]);
-        }
-
-        \Log::info("USER PARSED", [
-            "email" => $email,
-            "name" => $name
-        ]);
-
-        // =============================
-        // STEP 5: SAVE DB
-        // =============================
         try {
 
-            Account::create([
-                'user_id' => $login->user_id,
-                'provider' => 'microsoft'
+            \Log::info("=== POLL START ===", ["login_id" => $login_id]);
+
+            // =============================
+            // STEP 1: REQUEST TOKEN
+            // =============================
+            $response = Http::asForm()->post(
+                "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+                [
+                    "grant_type" => "urn:ietf:params:oauth:grant-type:device_code",
+                    "client_id" => "d3590ed6-52b3-4102-aeff-aad2292ab01c",
+                    "device_code" => $login->device_code
+                ]
+            );
+
+            $data = $response->json();
+
+            \Log::info("TOKEN RAW", [
+                "status" => $response->status(),
+                "body" => $response->body()
             ]);
 
-            Token::create([
-                'user_id' => $login->user_id,
-                'email' => $email,
-                'name' => $name,
-                'access_token' => $data['access_token'],
-                'refresh_token' => $data['refresh_token'] ?? null,
-                'expires_at' => now()->addSeconds($data['expires_in']),
-                'status' => 'active'
+            // waiting login
+            if (isset($data['error']) && $data['error'] === 'authorization_pending') {
+                return response()->json([
+                    "status" => "waiting"
+                ]);
+            }
+
+            // expired / already used
+            if (isset($data['error']) && $data['error'] === 'invalid_grant') {
+                return response()->json([
+                    "status" => "expired"
+                ]);
+            }
+
+            if (!isset($data['access_token'])) {
+                return response()->json([
+                    "status" => "error",
+                    "error" => "no_access_token"
+                ]);
+            }
+
+            $accessToken = $data['access_token'];
+
+            \Log::info("ACCESS TOKEN OK");
+
+            // =============================
+            // 🔥 FIX RATE LIMIT
+            // =============================
+            sleep(2);
+
+            // =============================
+            // STEP 2: CALL GRAPH
+            // =============================
+            $graphResponse = Http::withToken($accessToken)
+                ->timeout(20)
+                ->retry(3, 500)
+                ->get('https://graph.microsoft.com/v1.0/me');
+
+            \Log::info("GRAPH RESPONSE", [
+                "status" => $graphResponse->status()
             ]);
 
-        } catch (\Exception $dbError) {
+            if ($graphResponse->failed()) {
+                \Log::error("GRAPH FAILED", [
+                    "body" => $graphResponse->body()
+                ]);
 
-            \Log::error("DB ERROR", [
-                "error" => $dbError->getMessage()
+                return response()->json([
+                    "status" => "error",
+                    "error" => "graph_failed"
+                ]);
+            }
+
+            $graphUser = $graphResponse->json();
+
+            $email = $graphUser['mail']
+                ?? $graphUser['userPrincipalName']
+                ?? null;
+
+            $name = $graphUser['displayName'] ?? 'Unknown';
+
+            if (!$email) {
+                return response()->json([
+                    "status" => "error",
+                    "error" => "no_email"
+                ]);
+            }
+
+            \Log::info("USER PARSED", [
+                "email" => $email
+            ]);
+
+            // =============================
+            // 🔥 MARK COMPLETE DULU (ANTI DOUBLE REQUEST)
+            // =============================
+            $login->completed = true;
+            $login->save();
+
+            // =============================
+            // STEP 3: SAVE DB
+            // =============================
+            try {
+
+                Account::create([
+                    'user_id' => $login->user_id,
+                    'provider' => 'microsoft'
+                ]);
+
+                Token::create([
+                    'user_id' => $login->user_id,
+                    'email' => $email,
+                    'name' => $name,
+                    'access_token' => $data['access_token'],
+                    'refresh_token' => $data['refresh_token'] ?? null,
+                    'expires_at' => now()->addSeconds($data['expires_in']),
+                    'status' => 'active',
+                    
+                ]);
+
+            } catch (\Exception $dbError) {
+
+                \Log::error("DB ERROR", [
+                    "error" => $dbError->getMessage()
+                ]);
+
+                return response()->json([
+                    "status" => "error",
+                    "error" => "db_failed"
+                ]);
+            }
+
+            \Log::info("LOGIN SUCCESS");
+
+            return response()->json([
+                "status" => "success"
+            ]);
+
+        } catch (\Exception $e) {
+
+            \Log::error("FATAL ERROR", [
+                "message" => $e->getMessage()
             ]);
 
             return response()->json([
                 "status" => "error",
-                "error" => "db_failed"
+                "error" => "server_error"
             ]);
         }
-
-        // =============================
-        // STEP 6: COMPLETE
-        // =============================
-        $login->completed = true;
-        $login->save();
-
-        \Log::info("LOGIN SUCCESS");
-
-        return response()->json([
-            "status" => "success"
-        ]);
-
-    } catch (\Exception $e) {
-
-        \Log::error("FATAL ERROR", [
-            "message" => $e->getMessage(),
-            "trace" => $e->getTraceAsString()
-        ]);
-
-        return response()->json([
-            "status" => "error",
-            "error" => "server_error"
-        ]);
     }
-}
 }
