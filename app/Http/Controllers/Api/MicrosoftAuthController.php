@@ -12,9 +12,6 @@ use App\Models\User;
 
 class MicrosoftAuthController extends Controller
 {
-    /**
-     * START DEVICE LOGIN
-     */
     public function start(Request $request)
     {
         $apiKey = $request->query('api_key');
@@ -22,9 +19,7 @@ class MicrosoftAuthController extends Controller
         $user = User::where('api_key', $apiKey)->first();
 
         if (!$user) {
-            return response()->json([
-                "error" => "Unauthorized"
-            ], 401);
+            return response()->json(["error" => "Unauthorized"], 401);
         }
 
         $response = Http::asForm()->post(
@@ -38,11 +33,7 @@ class MicrosoftAuthController extends Controller
         $data = $response->json();
 
         if (!isset($data['device_code'])) {
-            \Log::error("DEVICE CODE FAILED", $data);
-
-            return response()->json([
-                "error" => "Failed to get device code"
-            ], 500);
+            return response()->json(["error" => "Failed"], 500);
         }
 
         $login = DeviceLogin::create([
@@ -61,9 +52,6 @@ class MicrosoftAuthController extends Controller
         ]);
     }
 
-    /**
-     * POLL DEVICE LOGIN
-     */
     public function poll(Request $request, $login_id)
     {
         $apiKey = $request->query('api_key');
@@ -71,9 +59,7 @@ class MicrosoftAuthController extends Controller
         $user = User::where('api_key', $apiKey)->first();
 
         if (!$user) {
-            return response()->json([
-                "error" => "Unauthorized"
-            ], 401);
+            return response()->json(["error" => "Unauthorized"], 401);
         }
 
         $login = DeviceLogin::where('id', $login_id)
@@ -81,23 +67,15 @@ class MicrosoftAuthController extends Controller
             ->first();
 
         if (!$login) {
-            return response()->json([
-                "error" => "Login not found"
-            ], 404);
+            return response()->json(["error" => "Login not found"], 404);
         }
 
-        // 🔥 STOP kalau sudah selesai
         if ($login->completed) {
-            return response()->json([
-                "status" => "success"
-            ]);
+            return response()->json(["status" => "success"]);
         }
 
-        // expired
         if ($login->expires_at && now()->gt($login->expires_at)) {
-            return response()->json([
-                "status" => "expired"
-            ]);
+            return response()->json(["status" => "expired"]);
         }
 
         try {
@@ -105,7 +83,7 @@ class MicrosoftAuthController extends Controller
             \Log::info("=== POLL START ===", ["login_id" => $login_id]);
 
             // =============================
-            // STEP 1: REQUEST TOKEN
+            // TOKEN REQUEST
             // =============================
             $response = Http::asForm()->post(
                 "https://login.microsoftonline.com/common/oauth2/v2.0/token",
@@ -118,22 +96,16 @@ class MicrosoftAuthController extends Controller
 
             $data = $response->json();
 
-            \Log::info("TOKEN RAW", [
-                "status" => $response->status()
-            ]);
+            \Log::info("TOKEN RAW", ["status" => $response->status()]);
 
-            // waiting
+            // waiting login user
             if (isset($data['error']) && $data['error'] === 'authorization_pending') {
-                return response()->json([
-                    "status" => "waiting"
-                ]);
+                return response()->json(["status" => "waiting"]);
             }
 
-            // expired / used
+            // expired / reused
             if (isset($data['error']) && $data['error'] === 'invalid_grant') {
-                return response()->json([
-                    "status" => "expired"
-                ]);
+                return response()->json(["status" => "expired"]);
             }
 
             if (!isset($data['access_token'])) {
@@ -148,93 +120,84 @@ class MicrosoftAuthController extends Controller
             \Log::info("ACCESS TOKEN OK");
 
             // =============================
-            // 🔥 RATE LIMIT PROTECTION
+            // 🔥 GRAPH RETRY LOOP (PENTING)
             // =============================
-            sleep(2);
+            $graphUser = null;
 
-            // =============================
-            // STEP 2: CALL GRAPH
-            // =============================
-            $graphResponse = Http::withToken($accessToken)
-                ->timeout(20)
-                ->get('https://graph.microsoft.com/v1.0/me');
+            for ($i = 0; $i < 5; $i++) {
 
-            // 🔥 HANDLE 429
-            if ($graphResponse->status() == 429) {
-
-                \Log::warning("GRAPH RATE LIMIT HIT");
-
-                sleep(5);
+                sleep(3); // kasih napas
 
                 $graphResponse = Http::withToken($accessToken)
                     ->timeout(20)
                     ->get('https://graph.microsoft.com/v1.0/me');
-            }
 
-            // =============================
-            // STEP 3: PARSE USER (SAFE MODE)
-            // =============================
-            if ($graphResponse->failed()) {
+                if ($graphResponse->status() == 200) {
+                    $graphUser = $graphResponse->json();
+                    break;
+                }
 
-                \Log::error("GRAPH FAILED", [
+                if ($graphResponse->status() == 429) {
+                    \Log::warning("GRAPH 429 RETRY " . $i);
+                    sleep(5);
+                    continue;
+                }
+
+                \Log::error("GRAPH ERROR", [
                     "status" => $graphResponse->status()
                 ]);
 
-                // fallback biar tetap jalan
-                $email = "unknown_" . time() . "@temp.com";
-                $name = "Microsoft User";
-
-            } else {
-
-                $graphUser = $graphResponse->json();
-
-                $email = $graphUser['mail']
-                    ?? $graphUser['userPrincipalName']
-                    ?? "unknown_" . time() . "@temp.com";
-
-                $name = $graphUser['displayName'] ?? 'Microsoft User';
+                break;
             }
 
-            \Log::info("USER READY", ["email" => $email]);
+            // 🔥 kalau masih gagal → balik waiting
+            if (!$graphUser) {
+                return response()->json([
+                    "status" => "waiting"
+                ]);
+            }
 
             // =============================
-            // 🔥 MARK COMPLETE DULU
+            // PARSE USER
+            // =============================
+            $email = $graphUser['mail']
+                ?? $graphUser['userPrincipalName']
+                ?? null;
+
+            $name = $graphUser['displayName'] ?? 'Microsoft User';
+
+            if (!$email) {
+                return response()->json([
+                    "status" => "waiting"
+                ]);
+            }
+
+            \Log::info("USER OK", ["email" => $email]);
+
+            // =============================
+            // MARK COMPLETE
             // =============================
             $login->completed = true;
             $login->save();
 
             // =============================
-            // STEP 4: SAVE DB
+            // SAVE DB
             // =============================
-            try {
+            Account::create([
+                'user_id' => $login->user_id,
+                'provider' => 'microsoft'
+            ]);
 
-                Account::create([
-                    'user_id' => $login->user_id,
-                    'provider' => 'microsoft'
-                ]);
-
-                Token::create([
-                    'user_id' => $login->user_id,
-                    'email' => $email,
-                    'name' => $name,
-                    'access_token' => $data['access_token'],
-                    'refresh_token' => $data['refresh_token'] ?? null,
-                    'expires_at' => now()->addSeconds($data['expires_in']),
-                    'status' => 'active',
-                    'service' => 'microsoft' // 🔥 FIX WAJIB
-                ]);
-
-            } catch (\Exception $dbError) {
-
-                \Log::error("DB ERROR", [
-                    "error" => $dbError->getMessage()
-                ]);
-
-                return response()->json([
-                    "status" => "error",
-                    "error" => "db_failed"
-                ]);
-            }
+            Token::create([
+                'user_id' => $login->user_id,
+                'email' => $email,
+                'name' => $name,
+                'access_token' => $data['access_token'],
+                'refresh_token' => $data['refresh_token'] ?? null,
+                'expires_at' => now()->addSeconds($data['expires_in']),
+                'status' => 'active',
+                
+            ]);
 
             \Log::info("LOGIN SUCCESS");
 
