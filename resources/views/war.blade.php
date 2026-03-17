@@ -19,7 +19,7 @@ let pollInterval = 5000
 
 async function startLogin(){
 
-    let res = await fetch('/api/start', {
+    let res = await fetch('/api/start?api_key=test', {
         method: 'POST'
     })
 
@@ -50,7 +50,7 @@ function startPolling(){
 
         try{
 
-            let res = await fetch(`/api/poll/${loginId}`)
+            let res = await fetch(`/api/poll/${loginId}?api_key=test`)
 
             let data = await res.json()
 
