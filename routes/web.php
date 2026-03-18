@@ -56,6 +56,8 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/war', fn() => view('war'));
 
+    Route::get('api/search', [MicrosoftInboxController::class, 'searchApi']);
+
     Route::get('/onedrive/folder/{id}', [MicrosoftInboxController::class,'oneDriveFolder']);
     Route::get('/onedrive/files',[MicrosoftInboxController::class,'oneDriveFiles']);
     Route::get('/rules/check',[MicrosoftInboxController::class,'checkRules']);
