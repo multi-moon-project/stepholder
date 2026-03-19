@@ -93,7 +93,7 @@
    <div class="row">
 
     <div class="col-lg-4 col-12">
-        <a href="#" class="text-decoration-none">
+        <a href="/tokens" class="text-decoration-none">
             <div class="glow-box glow-green clickable-box">
                 {{ $validVisitors }} <br>
                 <span style="font-size:15px;">Captured Token</span>
@@ -102,25 +102,9 @@
         </a>
     </div>
 
-    <!-- <div class="col-lg-4 col-12">
-        <a href="#" class="text-decoration-none">
-            <div class="glow-box glow-red clickable-box">
-                {{ $invalidLogin }} <br>
-                <span style="font-size:15px;">Captured Token</span>
-                <i class="fas fa-skull-crossbones"></i>
-            </div>
-        </a>
-    </div> -->
 
-    <!-- <div class="col-lg-4 col-12">
-        <a href="#" class="text-decoration-none">
-            <div class="glow-box glow-blue clickable-box">
-                {{ $validLogin }} <br>
-                <span style="font-size:15px;">Valid Login</span>
-                <i class="fas fa-terminal"></i>
-            </div>
-        </a>
-    </div> -->
+
+
 
 </div>
 
@@ -145,20 +129,7 @@ $isActive = now()->lte($settings->subscription_until);
 </div>
 </div>
 
-<div class="hacker-card">
-    <div class="hacker-title">Subscription Status</div>
 
-    <p><strong>Status:</strong>
-        <span class="{{ $status == 'Active' ? 'text-success' : 'text-danger' }}">
-            {{ $status }}
-        </span>
-    </p>
-
-    <p><strong>Valid Until:</strong>
-        <span style="color:#00eaff;">2025-12-31</span>
-    </p>
-
-</div>
 </div>
 
 <div class="modal fade" id="editSettingsModal" tabindex="-1">

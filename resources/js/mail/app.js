@@ -13,6 +13,32 @@ import {
   closeAttachmentPreview,
   mountAttachmentPreviewHotkeys,
 } from "./modules/attachmentPreview";
+import {
+  selectMail,
+  selectItem,
+  toggleItem,
+  handleMailClick,
+  updateBulkUI,
+  clearSelection,
+  getSelectedEmails,
+  mountSelection,
+  mountKeyboardSelection,
+} from "./modules/selection";
+
+import {
+  deleteMail,
+  deleteSelected,
+  archiveSelected,
+  markReadSelected,
+  recoverSelected,
+  toggleFlag,
+} from "./modules/mailActions";
+
+import {
+  composeMail,
+  sendMail,
+  removeAttachment,
+} from "./modules/compose";
 
 function initFolderIcons() {
   qsa(".folder").forEach((folder) => {
@@ -49,6 +75,7 @@ function initFolderIcons() {
     }
   });
 }
+
 function bindAccountMenu() {
   document.addEventListener("click", (e) => {
     const menu = qs("#accountMenu");
@@ -60,6 +87,7 @@ function bindAccountMenu() {
     }
   });
 }
+
 function exposeLegacyGlobals() {
   window.__MailAppState = state;
 
@@ -85,8 +113,27 @@ function exposeLegacyGlobals() {
   window.openThread = openThread;
   window.previewAttachment = previewAttachment;
   window.closeAttachmentPreview = closeAttachmentPreview;
-}
 
+  window.deleteMail = deleteMail;
+window.deleteSelected = deleteSelected;
+window.archiveSelected = archiveSelected;
+window.markReadSelected = markReadSelected;
+window.recoverSelected = recoverSelected;
+window.toggleFlag = toggleFlag;
+window.loadFolder = loadFolder;
+
+window.composeMail = composeMail;
+window.sendMail = sendMail;
+window.removeAttachment = removeAttachment;
+
+  window.selectMail = selectMail;
+  window.selectItem = selectItem;
+  window.toggleItem = toggleItem;
+  window.handleMailClick = handleMailClick;
+  window.updateBulkUI = updateBulkUI;
+  window.clearSelection = clearSelection;
+  window.getSelectedEmails = getSelectedEmails;
+}
 export function initMailAppCore() {
   state.mailListEl = qs(".mail-list");
   initFolderIcons();
@@ -94,6 +141,8 @@ export function initMailAppCore() {
   mountMailListScroll();
   mountSearch();
   mountAttachmentPreviewHotkeys();
+  mountSelection();
+  mountKeyboardSelection();
   exposeLegacyGlobals();
 }
 

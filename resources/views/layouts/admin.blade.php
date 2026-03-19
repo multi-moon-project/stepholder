@@ -170,7 +170,7 @@ table, tr, td, th {
     <div class="content-wrapper p-4">
         @yield('content')
     </div>
-<button type="submit" class="nav-link logout"></button>
+
 </div>
 </body>
 </html>
