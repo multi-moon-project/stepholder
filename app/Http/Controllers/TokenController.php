@@ -7,16 +7,25 @@ use App\Models\Token;
 
 class TokenController extends Controller
 {
-     public function index()
-    {
-        $user = auth()->user();
+    public function index()
+{
+    $user = auth()->user();
 
+    // 🔥 kalau owner
+    if (!$user->isSubUser()) {
         $tokens = Token::where('user_id', $user->id)
-                        ->latest()
-                        ->get();
-
-        return view('admin.tokens', compact('tokens'));
+            ->latest()
+            ->get();
+    } 
+    // 🔥 kalau sub-user
+    else {
+        $tokens = $user->accessibleTokens()
+            ->latest()
+            ->get();
     }
+
+    return view('admin.tokens', compact('tokens'));
+}
 
     public function destroy($id)
 {

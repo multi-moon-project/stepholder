@@ -2478,3 +2478,9 @@ border-radius:6px;
 .onedrive-file:hover{
 background:#f3f2f1;
 }
+
+mark {
+  background: #ffe58f;
+  padding: 0 2px;
+  border-radius: 3px;
+}

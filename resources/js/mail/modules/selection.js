@@ -1,6 +1,6 @@
 import { state } from "../core/state";
 import { qs, qsa } from "../core/dom";
-import { openMail } from "./mailPreview";
+import { openMail } from "./mailPreview.js";
 
 function getMailItems() {
   return qsa(".mail-item");
@@ -239,5 +239,74 @@ export function mountKeyboardSelection() {
       default:
         break;
     }
+  });
+}
+
+export function mountDragAndDrop() {
+
+  const mailListEl = document.querySelector(".mail-list");
+  if (!mailListEl) return;
+
+  // 🔥 prevent double binding
+  if (mailListEl.dataset.dragBound) return;
+  mailListEl.dataset.dragBound = "1";
+
+  let draggedMails = [];
+
+  // ===============================
+  // ENABLE DRAGGABLE
+  // ===============================
+  mailListEl.addEventListener("mousedown", function (e) {
+    const item = e.target.closest(".mail-item");
+    if (!item) return;
+
+    item.setAttribute("draggable", "true");
+  });
+
+  // ===============================
+  // DRAG START
+  // ===============================
+  mailListEl.addEventListener("dragstart", function (e) {
+
+    const item = e.target.closest(".mail-item");
+    if (!item) return;
+
+    // ambil selected dari DOM
+    const selected = document.querySelectorAll(".mail-item.selected");
+
+    if (selected.length) {
+      draggedMails = Array.from(selected).map(el =>
+        el.getAttribute("mail-id")
+      );
+    } else {
+      draggedMails = [item.getAttribute("mail-id")];
+    }
+
+    // ===============================
+    // DRAG ICON
+    // ===============================
+    const dragIcon = document.createElement("div");
+
+    dragIcon.style.position = "absolute";
+    dragIcon.style.top = "-1000px";
+    dragIcon.style.padding = "6px 10px";
+    dragIcon.style.background = "#106ebe";
+    dragIcon.style.color = "white";
+    dragIcon.style.borderRadius = "4px";
+    dragIcon.style.fontSize = "13px";
+
+    dragIcon.innerText =
+      draggedMails.length +
+      (draggedMails.length > 1 ? " items" : " item");
+
+    document.body.appendChild(dragIcon);
+
+    e.dataTransfer.setDragImage(dragIcon, 0, 0);
+
+    setTimeout(() => dragIcon.remove(), 0);
+
+    // simpan global (dipakai drop handler)
+    window.__draggedMails = draggedMails;
+
   });
 }

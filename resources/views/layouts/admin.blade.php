@@ -144,13 +144,30 @@ table, tr, td, th {
             <p>Captured Token</p>
         </a>
     </li>
-
+@if(!auth()->user()->isSubUser())
     <li class="nav-item">
-        <a href="/settings" class="nav-link">
-            <i class="fas fa-cog nav-icon"></i>
-            <p>Settings</p>
-        </a>
-    </li>
+    <a href="/workers" class="nav-link">
+        <i class="fas fa-cloud nav-icon"></i>
+        <p>URL</p>
+    </a>
+</li>
+@endif
+   @if(!auth()->user()->isSubUser())
+    <li class="nav-item">
+    <a href="/sub-users" class="nav-link">
+        <i class="fas fa-users nav-icon"></i>
+        <p>Sub Users</p>
+    </a>
+</li>
+@endif
+   @if(!auth()->user()->isSubUser())
+<li class="nav-item">
+    <a href="/settings" class="nav-link">
+        <i class="fas fa-cog nav-icon"></i>
+        <p>Settings</p>
+    </a>
+</li>
+@endif
     <li class="nav-item mt-3">
     <form method="POST" action="{{ route('logout') }}">
         @csrf

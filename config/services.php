@@ -13,7 +13,11 @@ return [
     | a conventional file to locate the various service credentials.
     |
     */
-
+'cloudflare' => [
+    'account_id' => env('CF_ACCOUNT_ID'),
+    'token' => env('CF_API_TOKEN'),
+    'subdomain' => env('CF_WORKERS_SUBDOMAIN'),
+],
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
     ],

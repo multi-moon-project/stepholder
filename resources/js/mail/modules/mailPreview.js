@@ -44,7 +44,14 @@ function addUnreadDot(item) {
   }
 }
 
+
 export async function openMail(id, el) {
+  const preview = qs(".mail-preview");
+  if (!preview) return;
+
+  const requestId = ++state.previewRequest;
+
+  preview.innerHTML = skeletonPreview();
 
   let html = null;
 
@@ -52,6 +59,7 @@ export async function openMail(id, el) {
     html = state.previewCache.get(id);
   } else {
     const text = await safeText("/mail/preview/" + id);
+
     if (!text) {
       preview.innerHTML = `
         <div style="padding:40px;color:#605e5c">
@@ -65,10 +73,11 @@ export async function openMail(id, el) {
     setLimitedMap(state.previewCache, id, html, 40);
   }
 
-  if (requestId !== state.previewRequest) {
-    return;
-  }
+  if (requestId !== state.previewRequest) return;
 
+  // ===============================
+  // RENDER IFRAME
+  // ===============================
   preview.innerHTML = `
     <iframe class="mail-frame"
       sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
@@ -80,28 +89,51 @@ export async function openMail(id, el) {
   if (!iframe) return;
 
   const doc = iframe.contentDocument || iframe.contentWindow.document;
+
   doc.open();
   doc.write(html);
   doc.close();
 
-  doc.addEventListener("click", function onIframeClick(e) {
-    const attachmentEl = e.target.closest(".mail-attachment");
-    if (!attachmentEl) return;
+  // ===============================
+  // ATTACHMENT CLICK BRIDGE (FIX FINAL)
+  // ===============================
+  doc.addEventListener("click", function (e) {
+    let el = e.target;
 
-    const messageId = attachmentEl.dataset.message;
-    const index = parseInt(attachmentEl.dataset.index, 10);
-    const attachments = JSON.parse(attachmentEl.dataset.attachments || "[]");
+    while (el && el !== doc) {
+      if (el.classList && el.classList.contains("mail-attachment")) {
+        break;
+      }
+      el = el.parentNode;
+    }
+
+    if (!el || el === doc) return;
+
+    const messageId = el.dataset.message;
+    const index = parseInt(el.dataset.index, 10);
+
+ let attachments = [];
+
+try {
+  attachments = JSON.parse(el.dataset.attachments || "[]");
+} catch (err) {
+  console.error("❌ JSON parse error", err);
+  return;
+}
+    console.log("🔥 CLICK TRIGGERED");
+    console.log("✅ CALLING VIEWER", { messageId, index, attachments });
 
     if (typeof window.openAttachmentViewer === "function") {
       window.openAttachmentViewer(messageId, attachments, index);
     }
   });
 
+  // ===============================
+  // AUTO MARK READ
+  // ===============================
   try {
     await safeFetch("/mail/read/" + id);
-  } catch (e) {
-    // noop for parity with old behavior
-  }
+  } catch (e) {}
 
   if (el) {
     el.classList.remove("unread");
@@ -109,6 +141,7 @@ export async function openMail(id, el) {
     ensureMarkUnreadAction(el, id);
   }
 }
+
 export async function markUnread(id) {
   await safeFetch("/mail/unread/" + id);
 

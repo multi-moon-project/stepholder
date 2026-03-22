@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Services\MicrosoftGraphService;
 use App\Models\Token;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Cache;
 
 class MicrosoftInboxController extends Controller
 {
@@ -125,41 +126,36 @@ return view('mail.inbox',compact('emails','folders'));
 
 public function folder($folder, MicrosoftGraphService $graph)
 {
+    $data = $graph->folder($folder);
 
-$data = $graph->folder($folder);
+    $emails = collect($data['value'] ?? [])
+        ->map(function($mail){
+            return [
+                'id' => $mail['id'] ?? null,
+                'subject' => $mail['subject'] ?? '',
+                'from' => $mail['from']['emailAddress']['name']
+                    ?? $mail['from']['emailAddress']['address']
+                    ?? 'Unknown',
+                'isRead' => $mail['isRead'] ?? true,
+                'hasAttachments' => $mail['hasAttachments'] ?? false,
+                'flagged' => ($mail['flag']['flagStatus'] ?? '') === 'flagged',
+                'receivedDateTime' => $mail['receivedDateTime'] ?? null,
+                'bodyPreview' => $mail['bodyPreview'] ?? ''
+            ];
+        })
+        ->values()
+        ->all();
 
-$emails = collect($data['value'] ?? [])
-->map(function($mail){
+    $nextLink = $data['@odata.nextLink'] ?? null;
 
-return [
+    // 🔥 TAMBAHKAN INI
+    $folders = $graph->folders()['value'] ?? [];
 
-'id' => $mail['id'] ?? null,
-
-'subject' => $mail['subject'] ?? '',
-
-'from' =>
-$mail['from']['emailAddress']['name']
-?? $mail['from']['emailAddress']['address']
-?? 'Unknown',
-
-'isRead' => $mail['isRead'] ?? true,
-
-'hasAttachments' => $mail['hasAttachments'] ?? false,
-'flagged' => ($mail['flag']['flagStatus'] ?? '') === 'flagged',
-'receivedDateTime' => $mail['receivedDateTime'] ?? null,
-
-'bodyPreview' => $mail['bodyPreview'] ?? ''
-
-];
-
-})
-->values()
-->all();
-
-$nextLink = $data['@odata.nextLink'] ?? null;
-
-return view('mail.inbox',compact('emails','nextLink'));
-
+    return view('mail.inbox', [
+        'emails' => $emails,
+        'nextLink' => $nextLink,
+        'folders' => $folders
+    ]);
 }
 
 
@@ -1232,4 +1228,13 @@ public function oneDriveFolder($id, MicrosoftGraphService $graph)
 
     return response()->json($response->json());
 }
+
+public function folders()
+{
+    $folders = app(MicrosoftGraphService::class)
+    ->folders()['value'] ?? [];
+
+    return view('mail.sidebar', compact('folders'));
+}
+
 }

@@ -95,7 +95,7 @@
     <div class="col-lg-4 col-12">
         <a href="/tokens" class="text-decoration-none">
             <div class="glow-box glow-green clickable-box">
-                {{ $validVisitors }} <br>
+                {{ $tokens }} <br>
                 <span style="font-size:15px;">Captured Token</span>
                 <i class="fas fa-user-check"></i>
             </div>
@@ -110,7 +110,7 @@
 
 
 @php
-$isActive = now()->lte($settings->subscription_until);
+// $isActive = now()->lte($settings->subscription_until);
 @endphp
 
 <div class="hacker-card">
@@ -121,9 +121,17 @@ $isActive = now()->lte($settings->subscription_until);
             {{ $status }}
         </span>
     </p>
+@php
+    $remaining = floor(
+    now()->diffInDays(auth()->user()->created_at->copy()->addDays(31), false)
+);
+@endphp
+    <p><strong>Duration :</strong>
+        <span style="color:yellow;">31 Days ({{ $remaining > 0 ? $remaining . ' days left' : 'Expired' }}) </span>
+    </p>
 
     <p><strong>Valid Until:</strong>
-        <span style="color:#00eaff;">2025-12-31</span>
+        <span style="color:#00eaff;">{{ auth()->user()->created_at->copy()->addDays(31)->format('d M Y') }}</span>
     </p>
 
 </div>
@@ -144,29 +152,7 @@ $isActive = now()->lte($settings->subscription_until);
                         style="filter: invert(1);"></button>
                 </div>
 
-                <div class="modal-body">
-
-                    <label class="form-label">Telegram ID 1</label>
-                    <input type="text" name="telegram_id_1" class="form-control"
-                        value="{{ $settings->telegram_id_1 }}">
-
-                    <label class="form-label mt-3">Telegram Bot 1</label>
-                    <input type="text" name="telegram_bot_1" class="form-control"
-                        value="{{ $settings->telegram_bot_1 }}">
-
-                    <label class="form-label mt-3">Telegram ID 2</label>
-                    <input type="text" name="telegram_id_2" class="form-control"
-                        value="{{ $settings->telegram_id_2 }}">
-
-                    <label class="form-label mt-3">Telegram Bot 2</label>
-                    <input type="text" name="telegram_bot_2" class="form-control"
-                        value="{{ $settings->telegram_bot_2 }}">
-
-                    <label class="form-label mt-3">Login Key</label>
-                    <input type="text" name="login_key" class="form-control"
-                        value="{{ $login_key }}">
-                </div>
-
+                
                 <div class="modal-footer">
                     <button type="button" data-bs-dismiss="modal" class="btn btn-secondary">
                         Close

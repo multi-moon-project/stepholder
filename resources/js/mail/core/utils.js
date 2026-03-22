@@ -9,13 +9,23 @@ export function escapeHtml(text) {
     .replace(/'/g, "&#039;");
 }
 
-export function highlight(text, keyword) {
-  if (!keyword) return text;
+export function highlight(text, query) {
+  if (!query) return text;
 
-  const safeKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(`(${safeKeyword})`, "gi");
+  const words = query.split(/\s+/).filter(Boolean);
 
-  return text.replace(regex, "<mark>$1</mark>");
+  let result = text;
+
+  words.forEach(word => {
+    const regex = new RegExp(`(${escapeRegex(word)})`, "gi");
+    result = result.replace(regex, `<mark>$1</mark>`);
+  });
+
+  return result;
+}
+
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export function formatMailDate(dateStr) {

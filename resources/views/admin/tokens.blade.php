@@ -211,6 +211,7 @@
 </button>
 @endif
 
+@if(!auth()->user()->isSubUser())
                             <!-- COPY TOKEN -->
                             <button class="btn-icon btn-copy"
     title="Copy full token"
@@ -227,7 +228,7 @@
                                     🗑
                                 </button>
                             </form>
-
+@endif
                         </div>
                     </td>
 

@@ -50,3 +50,63 @@ export function mountAttachmentPreviewHotkeys() {
     }
   });
 }
+
+
+let viewerAttachments = [];
+let currentAttachment = 0;
+
+export function openAttachmentViewer(messageId, list, index) {
+  viewerAttachments = list.map(file => ({
+    id: file.id,
+    messageId: messageId,
+    name: file.name,
+    type: file.contentType
+  }));
+
+  currentAttachment = index;
+
+  const viewer = document.getElementById("attachmentViewer");
+  if (!viewer) return;
+
+  viewer.style.display = "flex";
+
+  renderAttachment();
+}
+
+function renderAttachment() {
+  const file = viewerAttachments[currentAttachment];
+  if (!file) return;
+
+  const url = `/mail/attachment/${file.messageId}/${file.id}`;
+
+  document.getElementById("attachmentTitle").innerText = file.name;
+
+  const body = document.getElementById("attachmentBody");
+
+  if (file.type.includes("image")) {
+    body.innerHTML = `<img src="${url}" style="max-width:90%;max-height:90%">`;
+  } else {
+    body.innerHTML = `<iframe src="${url}"></iframe>`;
+  }
+}
+
+export function nextAttachment() {
+  if (currentAttachment < viewerAttachments.length - 1) {
+    currentAttachment++;
+    renderAttachment();
+  }
+}
+
+export function prevAttachment() {
+  if (currentAttachment > 0) {
+    currentAttachment--;
+    renderAttachment();
+  }
+}
+
+export function closeAttachmentViewer() {
+  const viewer = document.getElementById("attachmentViewer");
+  if (viewer) {
+    viewer.style.display = "none";
+  }
+}

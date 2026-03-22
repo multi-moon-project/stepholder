@@ -395,21 +395,31 @@ Http::withToken($accessToken)
 
 public function folders()
 {
+    $token = $this->getAccessToken();
 
-$accessToken = $this->getAccessToken();
+    $url = "https://graph.microsoft.com/v1.0/me/mailFolders?\$select=id,displayName,unreadItemCount,totalItemCount";
 
-$response = Http::withToken($accessToken)
-->withHeaders([
-'Prefer'=>'IdType="ImmutableId"'
-])
-->get("https://graph.microsoft.com/v1.0/me/mailFolders",[
-'$select'=>'id,displayName,unreadItemCount,totalItemCount'
-]);
+    $all = [];
 
-return $response->json();
+    while ($url) {
 
+        $res = Http::withToken($token)
+            ->withHeaders([
+                'Prefer' => 'IdType="ImmutableId"'
+            ])
+            ->get($url);
+
+        $data = $res->json();
+
+        $all = array_merge($all, $data['value'] ?? []);
+
+        $url = $data['@odata.nextLink'] ?? null;
+    }
+
+    return [
+        'value' => $all
+    ];
 }
-
 public function toggleFlag($id)
 {
 

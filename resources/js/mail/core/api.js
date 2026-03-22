@@ -1,36 +1,34 @@
 export async function safeFetch(url, options = {}) {
+  const token = document.querySelector('meta[name="csrf-token"]')?.content;
+
   try {
-    const response = await fetch(url, options);
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+        "X-CSRF-TOKEN": token,
+      },
+    });
+
     if (!response.ok) {
-      throw new Error(`Request failed: ${response.status} ${response.statusText}`);
+      const text = await response.text();
+      throw new Error(`Request failed: ${response.status} ${text}`);
     }
+
     return response;
+
   } catch (error) {
     console.error("Fetch error:", url, error);
-    return null;
+    throw error; // 🔥 WAJIB: jangan return null
   }
 }
 
 export async function safeJson(url, options = {}) {
   const res = await safeFetch(url, options);
-  if (!res) return null;
-
-  try {
-    return await res.json();
-  } catch (error) {
-    console.error("JSON parse error:", url, error);
-    return null;
-  }
+  return await res.json();
 }
 
 export async function safeText(url, options = {}) {
   const res = await safeFetch(url, options);
-  if (!res) return null;
-
-  try {
-    return await res.text();
-  } catch (error) {
-    console.error("Text parse error:", url, error);
-    return null;
-  }
+  return await res.text();
 }

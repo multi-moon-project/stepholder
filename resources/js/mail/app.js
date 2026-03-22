@@ -1,18 +1,34 @@
-import { state } from "./core/state";
-import { qs, qsa } from "./core/dom";
-import { mountMailListScroll, loadMoreEmails, renderMailList } from "./modules/mailList";
-import { addSearch, instantFilter, liveSearch, mountSearch } from "./modules/search";
+// file app.js
+import { openOneDrive, closeOneDrive } from "./modules/onedrive.js";
+import { state } from "./core/state.js";
+import { qs, qsa } from "./core/dom.js";
+
+import { mountMailListScroll, loadMoreEmails, renderMailList } from "./modules/mailList.js";
+import { addSearch, instantFilter, liveSearch, mountSearch } from "./modules/search.js";
+import {mountFolderDrop} from './modules/folderAction.js'
 import {
   openMail,
   markRead,
   markUnread,
   openThread,
-} from "./modules/mailPreview";
+} from "./modules/mailPreview.js";
+
 import {
-  previewAttachment,
-  closeAttachmentPreview,
-  mountAttachmentPreviewHotkeys,
-} from "./modules/attachmentPreview";
+  openAttachmentViewer,
+  nextAttachment,
+  prevAttachment,
+  closeAttachmentViewer,
+  mountAttachmentPreviewHotkeys
+} from "./modules/attachmentPreview.js";
+
+ import {
+  createFolder,
+  deleteFolder,
+  menuCreate,
+  menuDelete,
+  menuRename
+} from "./modules/folderCrud";
+
 import {
   selectMail,
   selectItem,
@@ -23,7 +39,8 @@ import {
   getSelectedEmails,
   mountSelection,
   mountKeyboardSelection,
-} from "./modules/selection";
+  mountDragAndDrop
+} from "./modules/selection.js";
 
 import {
   deleteMail,
@@ -32,13 +49,18 @@ import {
   markReadSelected,
   recoverSelected,
   toggleFlag,
-} from "./modules/mailActions";
+} from "./modules/mailActions.js";
 
 import {
   composeMail,
   sendMail,
   removeAttachment,
-} from "./modules/compose";
+  mountAttachmentInput
+} from "./modules/compose.js";
+
+import { undoManager } from './core/undo.js'
+
+import { loadFolder } from "./modules/folder.js";
 
 function initFolderIcons() {
   qsa(".folder").forEach((folder) => {
@@ -111,8 +133,10 @@ function exposeLegacyGlobals() {
   window.markRead = markRead;
   window.markUnread = markUnread;
   window.openThread = openThread;
-  window.previewAttachment = previewAttachment;
-  window.closeAttachmentPreview = closeAttachmentPreview;
+window.openAttachmentViewer = openAttachmentViewer;
+window.nextAttachment = nextAttachment;
+window.prevAttachment = prevAttachment;
+window.closeAttachmentViewer = closeAttachmentViewer;
 
   window.deleteMail = deleteMail;
 window.deleteSelected = deleteSelected;
@@ -133,6 +157,18 @@ window.removeAttachment = removeAttachment;
   window.updateBulkUI = updateBulkUI;
   window.clearSelection = clearSelection;
   window.getSelectedEmails = getSelectedEmails;
+  window.undoManager = undoManager;
+
+  window.openOneDrive = openOneDrive;
+window.closeOneDrive = closeOneDrive;
+  
+
+// 🔥 expose ke global
+window.createFolder = createFolder;
+window.deleteFolder = deleteFolder;
+window.menuCreate = menuCreate;
+window.menuDelete = menuDelete;
+window.menuRename = menuRename;
 }
 export function initMailAppCore() {
   state.mailListEl = qs(".mail-list");
@@ -144,6 +180,9 @@ export function initMailAppCore() {
   mountSelection();
   mountKeyboardSelection();
   exposeLegacyGlobals();
+  mountDragAndDrop();
+  mountFolderDrop();
+  
 }
 
 document.addEventListener("DOMContentLoaded", initMailAppCore);

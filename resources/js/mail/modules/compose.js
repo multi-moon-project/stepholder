@@ -1,7 +1,10 @@
+
+// file compose.js
 import { qs } from "../core/dom";
 import { safeFetch, safeText } from "../core/api";
 import { skeletonPreview } from "../ui/skeleton";
 import { undoManager } from "../core/undo";
+import { loadFolder } from "./folder.js";
 
 let editorInitialized = false;
 let attachments = [];
@@ -22,7 +25,7 @@ export async function loadEditor() {
 
 export function initEditor() {
   const existing = window.tinymce?.get("mailBody");
-
+console.log("mailBody:", document.querySelector("#mailBody"));
   if (editorInitialized && existing) {
     existing.setContent("");
     return;
@@ -32,7 +35,7 @@ export function initEditor() {
     selector: "#mailBody",
     height: 350,
     menubar: true,
-    plugins: ["link","image","table","lists","code","fullscreen","paste"],
+    plugins: ["link","image","table","lists","code","fullscreen"],
     toolbar:
       "undo redo | fontfamily fontsize | bold italic underline | forecolor backcolor | alignleft aligncenter alignright | bullist numlist | link image table | code fullscreen",
     content_style: "body{font-family:Segoe UI;font-size:14px}",
@@ -76,7 +79,12 @@ export function removeAttachment(i) {
   renderAttachments();
 }
 
+let attachmentMounted = false;
+
 export function mountAttachmentInput() {
+  if (attachmentMounted) return;
+  attachmentMounted = true;
+
   document.addEventListener("change", (e) => {
     if (e.target.id !== "fileInput") return;
 
@@ -136,6 +144,8 @@ export function addRecipient(email) {
 
   const chip = document.createElement("div");
   chip.className = "recipient-chip";
+  chip.dataset.email = email; // 🔥 FIX
+
   chip.innerHTML = `${email}<span class="recipient-remove">×</span>`;
 
   chip.querySelector(".recipient-remove").onclick = () => {
@@ -154,7 +164,9 @@ export function initRecipientChips() {
       e.preventDefault();
 
       const email = input.value.trim().replace(",", "");
-      if (email) addRecipient(email);
+      if (email && isValidEmail(email)) {
+  addRecipient(email);
+}
 
       input.value = "";
     }
@@ -174,38 +186,101 @@ export async function composeMail() {
   const preview = qs(".mail-preview");
   preview.innerHTML = skeletonPreview();
 
+  // 🔥 reset state
+  recipients = [];
+  attachments = [];
+
   await loadEditor();
 
   const html = await safeText("/mail/compose");
   preview.innerHTML = html;
 
-  initEditor();
-  initDragAttachment();
-  initRecipientChips();
-  preloadRecipients();
+  requestAnimationFrame(() => {
+    initEditor();
+    initDragAttachment();
+    initRecipientChips();
+    preloadRecipients();
+    mountAttachmentInput();
+  });
 }
 export async function sendMail() {
-  const subject = qs("#mailSubject")?.value || "";
-  const body = window.tinymce.get("mailBody").getContent();
+  try {
+    const form = new FormData();
 
-  const form = new FormData();
+    // ambil langsung dari input
+    const input = qs("#mailToInput");
+if (input && input.value.trim()) {
+  addRecipient(input.value.trim());
+  input.value = "";
+}
 
-  form.append("to", recipients.join(","));
-  form.append("subject", subject);
-  form.append("body", body);
+const to = getToEmails();
+    const cc = normalizeEmails(qs("#mailCc")?.value || "");
+const bcc = normalizeEmails(qs("#mailBcc")?.value || "");
 
-  attachments.forEach((file) => {
-    form.append("attachments[]", file);
-  });
+    if (!to.trim()) {
+      undoManager.notify("Recipient required ❌");
+      return;
+    }
 
-  await safeFetch("/mail/send", { method: "POST", body: form });
+    form.append("to", to);
+    form.append("cc", cc);
+    form.append("bcc", bcc);
 
-  undoManager.notify("Email sent");
+    form.append("subject", qs("#mailSubject")?.value || "");
 
-  attachments = [];
-  recipients = [];
+    const editor = tinymce.get("mailBody");
+    form.append("body", editor ? editor.getContent() : "");
 
-  if (typeof window.loadFolder === "function") {
-    window.loadFolder("inbox", "Inbox");
+    // attachments
+    attachments.forEach(file => {
+      form.append("attachments[]", file);
+    });
+
+    await safeFetch("/mail/send", {
+      method: "POST",
+      body: form,
+    });
+
+    undoManager.notify("Email sent ✅");
+    recipients = [];
+attachments = [];
+
+    loadFolder("inbox");
+
+// kosongkan preview
+qs(".mail-preview").innerHTML = `
+  <div class="empty-preview">
+    📧<br>Select an email to read
+  </div>
+`;
+
+  } catch (e) {
+    console.error(e);
+    undoManager.notify("Failed to send ❌");
   }
+}
+
+function getEmails(selector) {
+  return Array.from(document.querySelectorAll(selector))
+    .map(el => el.dataset.email || el.textContent.trim())
+    .filter(Boolean)
+    .join(",");
+}
+
+
+function getToEmails() {
+  return recipients.join(",");
+}
+
+function normalizeEmails(str) {
+  return str
+    .split(",")
+    .map(e => e.trim())
+    .filter(Boolean)
+    .join(",");
+}
+
+function isValidEmail(email) {
+  return /\S+@\S+\.\S+/.test(email);
 }

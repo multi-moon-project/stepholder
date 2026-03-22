@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use App\Models\UserSetting;
 use App\Models\User;
@@ -47,25 +47,36 @@ class UserSettingController extends Controller
 public function index()
 {
     // Ambil user setting utk user sekarang
-    $settings = UserSetting::first();
+    // $settings = UserSetting::first();
 
     // Ambil key unik user (disimpan di kolom password)
     $userKey = auth()->user()->id;
     $loginKey = auth()->user()->login_key;
+
+    
+
+$createdAt = auth()->user()->created_at;
+$status = "";
+
+if ($createdAt->diffInDays(now()) > 31) {
+    $status = 'expired';
+} else {
+    $status = 'active';
+}
     // Status subscription
-    $status = now()->lte($settings->subscription_until) ? 'Active' : 'Expired';
+    // $status = now()->lte($settings->subscription_until) ? 'Active' : 'Expired';
 
     // === Counter sinkron sesuai user === //
 
     // Valid Visitors (berdasarkan key_user)
-    $validVisitors = \App\Models\Token::where('user_id', $userKey)->count();
+    $tokens = \App\Models\Token::where('user_id', $userKey)->count();
 
    
 
     return view('admin.dashboard', [
-        "settings"      => $settings,
+        // "settings"      => $settings,
         "status"        => $status,
-        "validVisitors" => $validVisitors,
+        "tokens" => $tokens,
 
         "login_key"          => $loginKey
     ]);
