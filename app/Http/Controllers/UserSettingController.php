@@ -51,22 +51,18 @@ public function index()
     $loginKey = $user->login_key;
     $createdAt = $user->created_at;
 
-    // 🔥 STATUS SUBSCRIPTION
-    if ($createdAt->diffInDays(now()) > 31) {
-        $status = 'expired';
-    } else {
-        $status = 'active';
-    }
+    // 🔥 STATUS
+    $status = $createdAt->diffInDays(now()) > 31 ? 'expired' : 'active';
 
-    // 🔥 DETEKSI SUB USER ATAU MAIN USER
-    if ($user->is_sub_user ?? false) {
+    // 🔥 DETEKSI ROLE
+    if ($user->owner_id) {
 
-        // ✅ SUB USER → ambil dari relasi
+        // ✅ SUB USER
         $tokens = $user->accessibleTokens()->count();
 
     } else {
 
-        // ✅ MAIN USER → ambil dari user_id
+        // ✅ MAIN USER
         $tokens = \App\Models\Token::where('user_id', $user->id)->count();
     }
 
