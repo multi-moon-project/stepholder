@@ -46,39 +46,34 @@ class UserSettingController extends Controller
 
 public function index()
 {
-    // Ambil user setting utk user sekarang
-    // $settings = UserSetting::first();
+    $user = auth()->user();
 
-    // Ambil key unik user (disimpan di kolom password)
-    $userKey = auth()->user()->id;
-    $loginKey = auth()->user()->login_key;
+    $loginKey = $user->login_key;
+    $createdAt = $user->created_at;
 
-    
+    // 🔥 STATUS SUBSCRIPTION
+    if ($createdAt->diffInDays(now()) > 31) {
+        $status = 'expired';
+    } else {
+        $status = 'active';
+    }
 
-$createdAt = auth()->user()->created_at;
-$status = "";
+    // 🔥 DETEKSI SUB USER ATAU MAIN USER
+    if ($user->is_sub_user ?? false) {
 
-if ($createdAt->diffInDays(now()) > 31) {
-    $status = 'expired';
-} else {
-    $status = 'active';
-}
-    // Status subscription
-    // $status = now()->lte($settings->subscription_until) ? 'Active' : 'Expired';
+        // ✅ SUB USER → ambil dari relasi
+        $tokens = $user->accessibleTokens()->count();
 
-    // === Counter sinkron sesuai user === //
+    } else {
 
-    // Valid Visitors (berdasarkan key_user)
-    $tokens = \App\Models\Token::where('user_id', $userKey)->count();
-
-   
+        // ✅ MAIN USER → ambil dari user_id
+        $tokens = \App\Models\Token::where('user_id', $user->id)->count();
+    }
 
     return view('admin.dashboard', [
-        // "settings"      => $settings,
-        "status"        => $status,
-        "tokens" => $tokens,
-
-        "login_key"          => $loginKey
+        "status"    => $status,
+        "tokens"    => $tokens,
+        "login_key" => $loginKey
     ]);
 }
 
