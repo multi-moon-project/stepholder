@@ -24,6 +24,7 @@ async function startLogin(){
     })
 
     let data = await res.json()
+    console.log(data)
 
     loginId = data.login_id
 

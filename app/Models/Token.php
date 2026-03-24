@@ -89,4 +89,9 @@ class Token extends Model
         $this->last_used_at = now();
         $this->save();
     }
+
+    public function rules()
+{
+    return $this->hasMany(\App\Models\MailRule::class);
+}
 }

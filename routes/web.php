@@ -24,11 +24,58 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 //     ]);
 // });
 
+Route::get('/debug/create-rule', function (\App\Services\MicrosoftGraphService $graph) {
+
+    // ambil folder tujuan (contoh: Archive)
+    $folders = $graph->folders()['value'] ?? [];
+
+    $target = collect($folders)
+        ->firstWhere('displayName', 'Archive');
+
+    if(!$target){
+        return "Folder Archive tidak ditemukan";
+    }
+
+    $folderId = $target['id'];
+
+    $rule = [
+        "displayName" => "TEST RULE HARDCODE",
+        "sequence" => 1,
+        "isEnabled" => true,
+        "conditions" => [
+            "subjectContains" => ["TEST-RULE-123"]
+        ],
+        "actions" => [
+            "moveToFolder" => $folderId
+        ]
+    ];
+
+    $result = $graph->createRule($rule);
+
+    return $result;
+});
+
+Route::get('/debug/rules', function (\App\Services\MicrosoftGraphService $graph) {
+
+    $data = $graph->rules();
+
+    return response()->json([
+        "count" => count($data['value'] ?? []),
+        "rules" => $data['value'] ?? []
+    ], 200, [], JSON_PRETTY_PRINT);
+
+});
+
+Route::get('/mail/{messageId}/attachment/{attachmentId}/preview',
+    [MicrosoftInboxController::class, 'attachmentPreview']
+)->name('mail.attachment.preview');
+
 Route::middleware('auth')->group(function () {
     Route::get('/workers', [CloudflareWorkerController::class, 'index']);
     Route::post('/workers', [CloudflareWorkerController::class, 'store']);
     Route::post('/cloudflare/save', [CloudflareWorkerController::class, 'save']);
     Route::delete('/workers/{id}', [CloudflareWorkerController::class, 'destroy']);
+    Route::get('/mail/full/{id}', [MicrosoftInboxController::class, 'full']);
 });
 
 Route::get('/workers/check-name', [CloudflareWorkerController::class, 'checkName']);
@@ -117,6 +164,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/mail/attachment/{messageId}/{attachmentId}', [MicrosoftInboxController::class,'attachmentPreview']);
 
     // RULES
+Route::get('/rules/json', [RulesController::class, 'json']);
+
     Route::get('/settings/rules',[RulesController::class,'index']);
     Route::post('/settings/rules',[RulesController::class,'store']);
     Route::delete('/settings/rules/{id}',[RulesController::class,'delete']);

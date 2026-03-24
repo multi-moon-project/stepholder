@@ -35,4 +35,5 @@ export const state = {
   previewAbort: null,
   folderAbort: null,
   deltaAbort: null,
+  rules: [],
 };

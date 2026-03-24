@@ -6,26 +6,27 @@ $name = $mail['from']['emailAddress']['name'] ?? $from;
 $initial = strtoupper(substr($name,0,1));
 
 $to = collect($mail['toRecipients'] ?? [])
-->map(fn($r)=>$r['emailAddress']['address'])
-->implode(', ');
+    ->map(fn($r)=>$r['emailAddress']['address'])
+    ->implode(', ');
 
 $cc = collect($mail['ccRecipients'] ?? [])
-->map(fn($r)=>$r['emailAddress']['address'])
-->implode(', ');
+    ->map(fn($r)=>$r['emailAddress']['address'])
+    ->implode(', ');
 
 $bcc = collect($mail['bccRecipients'] ?? [])
-->map(fn($r)=>$r['emailAddress']['address'])
-->implode(', ');
+    ->map(fn($r)=>$r['emailAddress']['address'])
+    ->implode(', ');
 
 $date = isset($mail['receivedDateTime'])
-? \Carbon\Carbon::parse($mail['receivedDateTime'])->format('d M Y H:i')
-: '';
+    ? \Carbon\Carbon::parse($mail['receivedDateTime'])->format('d M Y H:i')
+    : '';
 
 @endphp
 
 
-<div style="max-width:900px;margin:auto">
+<div style="max-width:900px;margin:auto;font-family:Segoe UI, Arial">
 
+{{-- SUBJECT --}}
 <h1 style="
 font-size:26px;
 margin-bottom:20px;
@@ -36,6 +37,7 @@ color:#323130
 </h1>
 
 
+{{-- HEADER --}}
 <div style="
 display:flex;
 align-items:flex-start;
@@ -43,80 +45,72 @@ gap:12px;
 margin-bottom:20px
 ">
 
-<div style="
-width:42px;
-height:42px;
-border-radius:50%;
-background:#106ebe;
-color:white;
-display:flex;
-align-items:center;
-justify-content:center;
-font-weight:600;
-font-size:16px
-">
-{{$initial}}
+    {{-- AVATAR --}}
+    <div style="
+    width:42px;
+    height:42px;
+    border-radius:50%;
+    background:#106ebe;
+    color:white;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-weight:600;
+    font-size:16px
+    ">
+        {{$initial}}
+    </div>
+
+
+    {{-- INFO --}}
+    <div style="flex:1">
+
+        <div style="font-weight:600;font-size:15px">
+            {{$name}}
+        </div>
+
+        <div style="font-size:13px;color:#605e5c">
+            <b>From:</b> {{$from}}
+        </div>
+
+        @if($to)
+        <div style="font-size:13px;color:#605e5c;margin-top:4px">
+            <b>To:</b> {{$to}}
+        </div>
+        @endif
+
+        @if($cc)
+        <div style="font-size:13px;color:#605e5c">
+            <b>Cc:</b> {{$cc}}
+        </div>
+        @endif
+
+        @if($bcc)
+        <div style="font-size:13px;color:#605e5c">
+            <b>Bcc:</b> {{$bcc}}
+        </div>
+        @endif
+
+        <div style="font-size:12px;color:#8a8886;margin-top:4px">
+            {{$date}}
+        </div>
+
+    </div>
+
 </div>
 
-
-<div style="flex:1">
-
-<div style="font-weight:600;font-size:15px">
-{{$name}}
-</div>
-
-<div style="font-size:13px;color:#605e5c">
-<b>From:</b> {{$from}}
-</div>
-
-
-@if($to)
-<div style="font-size:13px;color:#605e5c;margin-top:4px">
-<b>To:</b> {{$to}}
-</div>
-@endif
-
-
-@if($cc)
-<div style="font-size:13px;color:#605e5c">
-<b>Cc:</b> {{$cc}}
-</div>
-@endif
-
-
-@if($bcc)
-<div style="font-size:13px;color:#605e5c">
-<b>Bcc:</b> {{$bcc}}
-</div>
-@endif
-
-
-<div style="font-size:12px;color:#8a8886;margin-top:4px">
-{{$date}}
-</div>
-
-</div>
-</div>
 
 <hr style="border:none;border-top:1px solid #eee;margin:20px 0">
 
 
 {{-- ATTACHMENTS --}}
-
 @if(!empty($attachments))
 
+<div class="attachment-list" style="margin-bottom:20px">
 
-
-
-<div class="attachment-list">
-
-@foreach($attachments as $index => $file)
+@foreach($attachments as $file)
 
 <div
-class="mail-attachment"
-data-message="{{ $messageId }}"
-data-index="{{ $index }}"
-data-attachments='@json($attachments)'
 style="
 display:inline-flex;
 align-items:center;
@@ -127,24 +121,29 @@ border-radius:6px;
 margin-right:8px;
 margin-bottom:8px;
 background:#faf9f8;
-cursor:pointer
 ">
 
-📎
+    📎
 
-<span style="
-color:#106ebe;
-font-size:14px;
-max-width:220px;
-white-space:nowrap;
-overflow:hidden;
-text-overflow:ellipsis;
-display:inline-block;
-">
-
-{{ $file['name'] ?? 'attachment' }}
-
-</span>
+    <a 
+        href="{{ route('mail.attachment.preview', [
+            'messageId'=>$messageId,
+            'attachmentId'=>$file['id']
+        ]) }}"
+        target="_blank"
+        style="
+        color:#106ebe;
+        font-size:14px;
+        text-decoration:none;
+        max-width:220px;
+        white-space:nowrap;
+        overflow:hidden;
+        text-overflow:ellipsis;
+        display:inline-block;
+        "
+    >
+        {{ $file['name'] ?? 'attachment' }}
+    </a>
 
 </div>
 
@@ -157,11 +156,12 @@ display:inline-block;
 
 
 {{-- BODY EMAIL --}}
-
 <div style="
 font-size:15px;
 line-height:1.7;
-color:#323130
+color:#323130;
+word-break:break-word;
+overflow:hidden
 ">
 
 {!! $mail['body']['content'] ?? '' !!}
@@ -171,7 +171,6 @@ color:#323130
 
 
 {{-- ACTION BUTTONS --}}
-
 <div style="
 margin-top:40px;
 display:flex;

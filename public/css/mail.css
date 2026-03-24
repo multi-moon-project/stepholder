@@ -1874,8 +1874,9 @@ z-index:9999;
 
 .settings-panel{
 
-width:900px;
-height:600px;
+ width:1100px;
+    height:680px;
+    max-width:95vw;
 
 background:white;
 
@@ -2483,4 +2484,34 @@ mark {
   background: #ffe58f;
   padding: 0 2px;
   border-radius: 3px;
+}
+
+
+/* =========================
+FIX RULES ISOLATION
+========================= */
+
+.rules-ui {
+    all: unset;
+    display:block;
+    font-family:"Segoe UI", Arial, sans-serif;
+}
+
+/* prevent global conflict */
+.rules-ui * {
+    box-sizing:border-box;
+}
+.settings-content{
+    flex:1;
+    padding:0; /* 🔥 penting */
+    overflow:hidden;
+}
+
+.rules-ui .rules-layout{
+    display:grid !important;
+    grid-template-columns:300px 1fr !important;
+    height:100%;
+}
+.rules-ui .rules-editor{
+    background:#f8fafc !important;
 }

@@ -146,18 +146,13 @@ return $response->json();
 
 public function attachments($messageId)
 {
+    $token = $this->getAccessToken();
 
-$token = $this->getAccessToken();
+    $response = Http::withToken($token)
+        ->get("https://graph.microsoft.com/v1.0/me/messages/$messageId/attachments");
 
-$response = Http::withToken($token)
-->get("https://graph.microsoft.com/v1.0/me/messages/$messageId/attachments",[
-'$select' => 'id,name,contentType,size'
-]);
-
-return $response->json();
-
+    return $response->json();
 }
-
 
 
 public function downloadAttachment($messageId,$attachmentId)

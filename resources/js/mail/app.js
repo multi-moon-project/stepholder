@@ -1,7 +1,9 @@
 // file app.js
 import { openOneDrive, closeOneDrive } from "./modules/onedrive.js";
+import { closeSettings,openSettings, loadRules, loadRulesToState, createRule, newRule, deleteRule, selectRule } from './modules/rules.js'
 import { state } from "./core/state.js";
 import { qs, qsa } from "./core/dom.js";
+import { checkNewMail } from './modules/realtime.js'
 
 import { mountMailListScroll, loadMoreEmails, renderMailList } from "./modules/mailList.js";
 import { addSearch, instantFilter, liveSearch, mountSearch } from "./modules/search.js";
@@ -138,6 +140,14 @@ window.nextAttachment = nextAttachment;
 window.prevAttachment = prevAttachment;
 window.closeAttachmentViewer = closeAttachmentViewer;
 
+window.openSettings = openSettings;
+window.closeSettings = closeSettings;
+window.loadRules = loadRules;
+window.createRule = createRule
+window.newRule = newRule
+window.deleteRule = deleteRule
+window.selectRule = selectRule
+
   window.deleteMail = deleteMail;
 window.deleteSelected = deleteSelected;
 window.archiveSelected = archiveSelected;
@@ -145,6 +155,8 @@ window.markReadSelected = markReadSelected;
 window.recoverSelected = recoverSelected;
 window.toggleFlag = toggleFlag;
 window.loadFolder = loadFolder;
+
+window.checkNewMail = checkNewMail;
 
 window.composeMail = composeMail;
 window.sendMail = sendMail;
@@ -170,10 +182,11 @@ window.menuCreate = menuCreate;
 window.menuDelete = menuDelete;
 window.menuRename = menuRename;
 }
-export function initMailAppCore() {
+export async function initMailAppCore() {
   state.mailListEl = qs(".mail-list");
   initFolderIcons();
   bindAccountMenu();
+   await loadRulesToState(); 
   mountMailListScroll();
   mountSearch();
   mountAttachmentPreviewHotkeys();
@@ -184,5 +197,9 @@ export function initMailAppCore() {
   mountFolderDrop();
   
 }
+
+setInterval(() => {
+    checkNewMail();
+}, 5000);
 
 document.addEventListener("DOMContentLoaded", initMailAppCore);

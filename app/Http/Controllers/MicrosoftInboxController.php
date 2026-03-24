@@ -464,28 +464,62 @@ return redirect('/inbox');
 // }
 public function preview($id, MicrosoftGraphService $graph)
 {
+    $mail = $graph->read($id);
 
-$mail = $graph->read($id);
+    $body = $graph->body($id);
+    $mail['body'] = $body['body'] ?? null;
 
-/* body load terpisah */
+    $att = $graph->attachments($id);
+    $attachments = $att['value'] ?? [];
 
-$body = $graph->body($id);
+    /* ======================
+    MAP CID → ATTACHMENT ID
+    ====================== */
+    $cidMap = collect($attachments)
+        ->filter(fn($a) => !empty($a['contentId']))
+        ->mapWithKeys(function($a){
+            return [
+                strtolower(trim($a['contentId'], '<>')) => $a['id']
+            ];
+        });
 
-$mail['body'] = $body['body'] ?? null;
+    /* ======================
+    REPLACE CID IN BODY
+    ====================== */
+    $bodyContent = $mail['body']['content'] ?? '';
 
-/* attachments metadata */
+    $bodyContent = preg_replace_callback(
+        '/cid:([^"\']+)/i',
+        function($matches) use ($cidMap, $id){
 
-$att = $graph->attachments($id);
+            $cid = strtolower(trim($matches[1], '<>'));
 
-$attachments = $att['value'] ?? [];
+            foreach($cidMap as $key => $attachmentId){
 
-$messageId = $id;
+                // FLEXIBLE MATCH (WAJIB, karena CID Outlook random)
+                if(str_contains($cid, $key) || str_contains($key, $cid)){
+                    
+                    return route('mail.attachment.preview', [
+                        'messageId' => $id,
+                        'attachmentId' => $attachmentId
+                    ]);
+                }
+            }
 
-return view('mail.preview',compact('mail','attachments','messageId'));
+            return $matches[0];
+        },
+        $bodyContent
+    );
 
+    $mail['body']['content'] = $bodyContent;
+    $messageId = $id;
+
+    return view('mail.preview', compact(
+        'mail',
+        'attachments',
+        'messageId'
+    ));
 }
-
-
 
 public function markUnread($id, MicrosoftGraphService $graph)
 {
@@ -1237,4 +1271,23 @@ public function folders()
     return view('mail.sidebar', compact('folders'));
 }
 
+public function full($id, MicrosoftGraphService $graph)
+{
+    try {
+
+        $mail = $graph->fullMessage($id);
+
+        return response()->json([
+            'body' => $mail['body'] ?? null,
+            'bodyPreview' => $mail['bodyPreview'] ?? '',
+        ]);
+
+    } catch (\Exception $e) {
+
+        return response()->json([
+            'error' => 'Failed load full mail',
+            'message' => $e->getMessage()
+        ], 500);
+    }
+}
 }
