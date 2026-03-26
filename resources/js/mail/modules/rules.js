@@ -1,6 +1,19 @@
 import { state } from "../core/state";
 
 /* ======================
+HELPER: EXTRACT EMAIL
+====================== */
+function extractEmail(raw) {
+  if (!raw) return "";
+
+  // ambil email di dalam <>
+  const match = raw.match(/<([^>]+)>/);
+  if (match) return match[1].toLowerCase();
+
+  return raw.toLowerCase();
+}
+
+/* ======================
 OPEN / CLOSE SETTINGS
 ====================== */
 export function openSettings() {
@@ -100,6 +113,7 @@ export async function createRule() {
   loadRules();
   loadRulesToState();
 }
+
 /* ======================
 DELETE RULE
 ====================== */
@@ -137,32 +151,47 @@ export function applyRules(mail, rules = []) {
 
   if (!rules || rules.length === 0) return actions;
 
+  // 🔥 normalize data
+  const fromRaw = (mail.from || "").toLowerCase();
+  const fromEmail = extractEmail(mail.from);
+
+  const subject = (mail.subject || "").toLowerCase();
+  const body = (
+    mail.fullBody ||
+    mail.bodyPreview ||
+    ""
+  ).toLowerCase();
+
   for (const rule of rules) {
 
     let match = false;
-
-    const from = (mail.from || "").toLowerCase();
-    const subject = (mail.subject || "").toLowerCase();
-    const body = (
-      mail.fullBody ||
-      mail.bodyPreview ||
-      ""
-    ).toLowerCase();
-
     const value = (rule.conditionValue || "").toLowerCase();
 
+    /* ===== SENDER ===== */
     if (rule.conditionType === "senderContains") {
-      if (from.includes(value)) match = true;
+      if (
+        fromRaw.includes(value) ||   // match nama/display
+        fromEmail.includes(value)    // match email
+      ) {
+        match = true;
+      }
     }
 
+    /* ===== SUBJECT ===== */
     if (rule.conditionType === "subjectContains") {
-      if (subject.includes(value)) match = true;
+      if (subject.includes(value)) {
+        match = true;
+      }
     }
 
+    /* ===== BODY ===== */
     if (rule.conditionType === "bodyContains") {
-      if (body.includes(value)) match = true;
+      if (body.includes(value)) {
+        match = true;
+      }
     }
 
+    /* ===== APPLY ACTION ===== */
     if (match) {
       if (rule.delete) actions.delete = true;
       if (rule.read) actions.read = true;
@@ -174,6 +203,9 @@ export function applyRules(mail, rules = []) {
   return actions;
 }
 
+/* ======================
+NEW RULE UI
+====================== */
 export function newRule() {
   document.getElementById("editingRuleId").value = "";
 
@@ -187,6 +219,9 @@ export function newRule() {
   document.getElementById("ruleEditorTitle").innerText = "Create rule";
 }
 
+/* ======================
+SELECT RULE (EDIT)
+====================== */
 export function selectRule(rule) {
 
   document.getElementById("editingRuleId").value = rule.id;
@@ -201,8 +236,3 @@ export function selectRule(rule) {
 
   document.getElementById("ruleEditorTitle").innerText = "Edit rule";
 }
-
-
-
-
-
