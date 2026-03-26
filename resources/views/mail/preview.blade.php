@@ -171,44 +171,33 @@ overflow:hidden
 
 
 {{-- ACTION BUTTONS --}}
-<div style="
-margin-top:40px;
-display:flex;
-gap:10px
-">
+<div style="margin-top:40px;display:flex;gap:10px">
+  <button
+    class="mail-preview-action"
+    data-action="reply"
+    data-id="{{ $mail['id'] }}"
+    style="padding:8px 16px;border:1px solid #d2d0ce;border-radius:6px;background:white;cursor:pointer"
+  >
+    ↩ Reply
+  </button>
 
-<button onclick="replyMail('{{ $mail['id'] }}')" style="
-padding:8px 16px;
-border:1px solid #d2d0ce;
-border-radius:6px;
-background:white;
-cursor:pointer
-">
-↩ Reply
-</button>
+  <button
+    class="mail-preview-action"
+    data-action="reply-all"
+    data-id="{{ $mail['id'] }}"
+    style="padding:8px 16px;border:1px solid #d2d0ce;border-radius:6px;background:white;cursor:pointer"
+  >
+    ↩ Reply all
+  </button>
 
-
-<button onclick="replyAllMail('{{ $mail['id'] }}')" style="
-padding:8px 16px;
-border:1px solid #d2d0ce;
-border-radius:6px;
-background:white;
-cursor:pointer
-">
-↩ Reply all
-</button>
-
-
-<button onclick="forwardMail('{{ $mail['id'] }}')" style="
-padding:8px 16px;
-border:1px solid #d2d0ce;
-border-radius:6px;
-background:white;
-cursor:pointer
-">
-➡ Forward
-</button>
-
+  <button
+    class="mail-preview-action"
+    data-action="forward"
+    data-id="{{ $mail['id'] }}"
+    style="padding:8px 16px;border:1px solid #d2d0ce;border-radius:6px;background:white;cursor:pointer"
+  >
+    ➡ Forward
+  </button>
 </div>
 
 </div>

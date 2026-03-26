@@ -13,6 +13,9 @@ import {
   markRead,
   markUnread,
   openThread,
+  replyMail,
+  replyAllMail,
+  forwardMail,
 } from "./modules/mailPreview.js";
 
 import {
@@ -57,12 +60,29 @@ import {
   composeMail,
   sendMail,
   removeAttachment,
-  mountAttachmentInput
+  toggleCc,
+  toggleBcc,
+  initEditor,
+  initRecipientChips,
+  mountAttachmentInput,
+  loadEditor
 } from "./modules/compose.js";
+
+window.initEditor = initEditor;
+window.initRecipientChips = initRecipientChips;
+window.mountAttachmentInput = mountAttachmentInput;
+window.loadEditor = loadEditor;
 
 import { undoManager } from './core/undo.js'
 
 import { loadFolder } from "./modules/folder.js";
+
+
+window.composeMail = composeMail;
+window.sendMail = sendMail;
+window.removeAttachment = removeAttachment;
+window.toggleCc = toggleCc;
+window.toggleBcc = toggleBcc;
 
 function initFolderIcons() {
   qsa(".folder").forEach((folder) => {
@@ -158,9 +178,11 @@ window.loadFolder = loadFolder;
 
 window.checkNewMail = checkNewMail;
 
-window.composeMail = composeMail;
-window.sendMail = sendMail;
-window.removeAttachment = removeAttachment;
+window.replyMail = replyMail;
+window.replyAllMail = replyAllMail;
+window.forwardMail = forwardMail;
+
+
 
   window.selectMail = selectMail;
   window.selectItem = selectItem;

@@ -900,84 +900,246 @@ return response()->json([
 
 public function replyForm($id, MicrosoftGraphService $graph)
 {
+    $mail = $graph->read($id);
 
-$mail = $graph->read($id);
+    /* ======================
+    GET BODY
+    ====================== */
+    $bodyData = $graph->body($id);
+    $rawBody = $bodyData['body']['content'] ?? '';
 
-/* recipient reply = sender */
+    /* ======================
+    GET ATTACHMENTS (🔥 WAJIB UNTUK CID)
+    ====================== */
+    $attData = $graph->attachments($id);
+    $attachments = $attData['value'] ?? [];
 
-$to = $mail['from']['emailAddress']['address'] ?? '';
+    /* ======================
+    CLEAN HTML
+    ====================== */
+    $cleanBody = $this->extractBodyContent($rawBody);
 
-/* subject */
+    /* ======================
+    REPLACE CID → URL (🔥 FIX UTAMA)
+    ====================== */
+    $cleanBody = preg_replace_callback(
+        '/cid:([^"\'>]+)/i',
+        function($matches) use ($attachments, $id){
 
-$subject = $mail['subject'] ?? '';
+            $cid = strtolower(trim($matches[1], '<>'));
 
-if(!str_starts_with(strtolower($subject),'re:')){
-    $subject = "Re: ".$subject;
+            foreach($attachments as $att){
+
+                $contentId = strtolower(trim($att['contentId'] ?? '', '<>'));
+
+                if(!$contentId) continue;
+
+                if(str_contains($cid, $contentId) || str_contains($contentId, $cid)){
+                    
+                    return route('mail.attachment.preview', [
+                        'messageId' => $id,
+                        'attachmentId' => $att['id']
+                    ]);
+                }
+            }
+
+            return $matches[0];
+        },
+        $cleanBody
+    );
+
+    /* ======================
+    FIX IMAGE STYLE (OPTIONAL 🔥)
+    ====================== */
+    $cleanBody = str_replace(
+        '<img',
+        '<img style="max-width:100%;height:auto"',
+        $cleanBody
+    );
+
+    /* ======================
+    META DATA
+    ====================== */
+    $to = $mail['from']['emailAddress']['address'] ?? '';
+
+    $subject = $mail['subject'] ?? '';
+    if (!str_starts_with(strtolower($subject), 're:')) {
+        $subject = "Re: " . $subject;
+    }
+
+    $from = $mail['from']['emailAddress']['name'] ?? '';
+    $fromEmail = $mail['from']['emailAddress']['address'] ?? '';
+
+    $date = \Carbon\Carbon::parse($mail['receivedDateTime'])
+        ->format('l, F d, Y H:i');
+
+    /* ======================
+    FINAL BODY
+    ====================== */
+    $body = "
+    <br><br>
+
+    On {$date}, {$from} &lt;{$fromEmail}&gt; wrote:
+
+    <blockquote style='border-left:3px solid #ccc;padding-left:10px;margin-left:5px'>
+    {$cleanBody}
+    </blockquote>
+    ";
+
+    return response()->json([
+        'html' => view('mail.compose', compact('to','subject'))->render(),
+        'body' => $body
+    ]);
 }
-
-/* header info */
-
-$from = $mail['from']['emailAddress']['name'] ?? '';
-$fromEmail = $mail['from']['emailAddress']['address'] ?? '';
-
-$date = \Carbon\Carbon::parse($mail['receivedDateTime'])
-->format('l, F d, Y H:i');
-
-/* body reply style */
-
-$body = "
-
-<br><br>
-
-On {$date}, {$from} &lt;{$fromEmail}&gt; wrote:
-
-<blockquote style='border-left:3px solid #ccc;padding-left:10px;margin-left:5px'>
-
-".$mail['body']['content']."
-
-</blockquote>
-
-";
-
-return view('mail.compose',compact('to','subject','body'));
-
-}
-
-
 
 
 
 public function replyAllForm($id, MicrosoftGraphService $graph)
 {
+    $mail = $graph->read($id);
 
-$mail = $graph->read($id);
+    /* ======================
+    GET BODY
+    ====================== */
+    $bodyData = $graph->body($id);
+    $rawBody = $bodyData['body']['content'] ?? '';
 
-$to = collect($mail['toRecipients'] ?? [])
-->map(fn($r)=>$r['emailAddress']['address'])
-->implode(',');
+    /* ======================
+    GET ATTACHMENTS (CID FIX)
+    ====================== */
+    $attData = $graph->attachments($id);
+    $attachments = $attData['value'] ?? [];
 
-$subject = "Re: ".($mail['subject'] ?? '');
+    /* ======================
+    CLEAN HTML
+    ====================== */
+    $cleanBody = $this->extractBodyContent($rawBody);
 
-$body = "<br><br><hr>".$mail['body']['content'];
+    /* ======================
+    REPLACE CID → IMAGE URL
+    ====================== */
+    $cleanBody = $this->replaceCidImages($cleanBody, $attachments, $id);
 
-return view('mail.compose',compact('to','subject','body'));
+    /* ======================
+    FIX IMAGE STYLE
+    ====================== */
+    $cleanBody = str_replace(
+        '<img',
+        '<img style="max-width:100%;height:auto"',
+        $cleanBody
+    );
 
+    /* ======================
+    CURRENT USER (ANTI SELF)
+    ====================== */
+    $userEmail = strtolower(auth()->user()->email ?? '');
+
+    /* ======================
+    TO LIST
+    ====================== */
+    $toList = collect($mail['toRecipients'] ?? [])
+        ->pluck('emailAddress.address')
+        ->map(fn($e) => strtolower(trim($e)))
+        ->filter()
+        ->unique()
+        ->reject(fn($e) => $e === $userEmail);
+
+    /* ======================
+    CC LIST
+    ====================== */
+    $ccList = collect($mail['ccRecipients'] ?? [])
+        ->pluck('emailAddress.address')
+        ->map(fn($e) => strtolower(trim($e)))
+        ->filter()
+        ->unique()
+        ->reject(fn($e) => $e === $userEmail);
+
+    /* ======================
+    FINAL STRING
+    ====================== */
+    $to = $toList->implode(',');
+    $cc = $ccList->implode(',');
+
+    /* ======================
+    SUBJECT
+    ====================== */
+    $subject = $mail['subject'] ?? '';
+    if (!str_starts_with(strtolower($subject), 're:')) {
+        $subject = "Re: " . $subject;
+    }
+
+    /* ======================
+    BODY FINAL
+    ====================== */
+    $body = "
+    <br><br>
+
+    <blockquote style='border-left:3px solid #ccc;padding-left:10px;margin-left:5px'>
+    {$cleanBody}
+    </blockquote>
+    ";
+
+    /* ======================
+    RETURN JSON (WAJIB!)
+    ====================== */
+    return response()->json([
+        'html' => view('mail.compose', compact('to','cc','subject'))->render(),
+        'body' => $body
+    ]);
 }
-
 
 
 
 public function forwardForm($id, MicrosoftGraphService $graph)
 {
+    $mail = $graph->read($id);
 
-$mail = $graph->read($id);
+    /* ======================
+    BODY
+    ====================== */
+    $bodyData = $graph->body($id);
+    $rawBody = $bodyData['body']['content'] ?? '';
 
-$subject = "Fwd: ".($mail['subject'] ?? '');
+    /* ======================
+    ATTACHMENTS (CID)
+    ====================== */
+    $attData = $graph->attachments($id);
+    $attachments = $attData['value'] ?? [];
 
-$body = "<br><br><hr>".$mail['body']['content'];
+    /* ======================
+    CLEAN
+    ====================== */
+    $cleanBody = $this->extractBodyContent($rawBody);
 
-return view('mail.compose',compact('subject','body'));
+    /* ======================
+    CID FIX
+    ====================== */
+    $cleanBody = $this->replaceCidImages($cleanBody, $attachments, $id);
 
+    /* ======================
+    STYLE FIX
+    ====================== */
+    $cleanBody = str_replace(
+        '<img',
+        '<img style="max-width:100%;height:auto"',
+        $cleanBody
+    );
+
+    $subject = "Fwd: " . ($mail['subject'] ?? '');
+
+    /* ======================
+    BODY FINAL
+    ====================== */
+    $body = "
+    <br><br>
+    <hr>
+    {$cleanBody}
+    ";
+
+    return response()->json([
+        'html' => view('mail.compose', compact('subject'))->render(),
+        'body' => $body
+    ]);
 }
 
 public function recover($id, MicrosoftGraphService $graph)
@@ -1127,11 +1289,14 @@ public function archive($id)
 }
 
 
-public function attachmentPreview($messageId,$attachmentId, MicrosoftGraphService $graph)
+public function attachmentPreview($messageId, $attachmentId, MicrosoftGraphService $graph)
 {
-    return $graph->previewAttachment($messageId,$attachmentId);
-}
+    $data = $graph->downloadAttachment($messageId, $attachmentId);
 
+    return response(base64_decode($data['contentBytes']))
+        ->header('Content-Type', $data['contentType'])
+        ->header('Content-Disposition', 'inline; filename="'.$data['name'].'"');
+}
 
 public function mailItem($id)
 {
@@ -1289,5 +1454,51 @@ public function full($id, MicrosoftGraphService $graph)
             'message' => $e->getMessage()
         ], 500);
     }
+}
+
+private function extractBodyContent($html)
+{
+    if (!$html) return '';
+
+    // ambil isi <body>
+    if (preg_match('/<body[^>]*>(.*?)<\/body>/is', $html, $matches)) {
+        $html = $matches[1];
+    }
+
+    // buang tag berbahaya / tidak perlu
+    $html = preg_replace('/<meta.*?>/is', '', $html);
+    $html = preg_replace('/<style.*?>.*?<\/style>/is', '', $html);
+    $html = preg_replace('/<script.*?>.*?<\/script>/is', '', $html);
+
+    return $html;
+}
+
+private function replaceCidImages($html, $attachments, $messageId)
+{
+    return preg_replace_callback(
+        '/cid:([^"\'>]+)/i',
+        function($matches) use ($attachments, $messageId){
+
+            $cid = strtolower(trim($matches[1], '<>'));
+
+            foreach($attachments as $att){
+
+                $contentId = strtolower(trim($att['contentId'] ?? '', '<>'));
+
+                if(!$contentId) continue;
+
+                if(str_contains($cid, $contentId) || str_contains($contentId, $cid)){
+                    
+                    return route('mail.attachment.preview', [
+                        'messageId' => $messageId,
+                        'attachmentId' => $att['id']
+                    ]);
+                }
+            }
+
+            return $matches[0];
+        },
+        $html
+    );
 }
 }

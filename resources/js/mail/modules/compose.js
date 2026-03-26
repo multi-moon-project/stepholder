@@ -1,17 +1,26 @@
-
-// file compose.js
 import { qs } from "../core/dom";
 import { safeFetch, safeText } from "../core/api";
 import { skeletonPreview } from "../ui/skeleton";
 import { undoManager } from "../core/undo";
 import { loadFolder } from "./folder.js";
 
-let editorInitialized = false;
 let attachments = [];
-let recipients = [];
 
+// STATE
+let recipients = [];
+let ccRecipients = [];
+let bccRecipients = [];
+
+/* =========================
+   EDITOR LOADER
+========================= */
 export async function loadEditor() {
-  if (window.tinymce) return;
+  if (window.tinymce) {
+    console.log("✅ TinyMCE already loaded");
+    return;
+  }
+
+  console.log("🚀 Loading TinyMCE...");
 
   const script = document.createElement("script");
   script.src = "https://cdn.jsdelivr.net/npm/tinymce@6/tinymce.min.js";
@@ -19,34 +28,88 @@ export async function loadEditor() {
   document.body.appendChild(script);
 
   await new Promise((resolve) => {
-    script.onload = resolve;
+    script.onload = () => {
+      console.log("✅ TinyMCE loaded");
+      resolve();
+    };
   });
 }
 
+/* =========================
+   INIT EDITOR (FIX FINAL)
+========================= */
 export function initEditor() {
-  const existing = window.tinymce?.get("mailBody");
-console.log("mailBody:", document.querySelector("#mailBody"));
-  if (editorInitialized && existing) {
-    existing.setContent("");
+
+  console.log("🔥 INIT EDITOR START");
+
+  // 🔥 WAJIB: destroy semua instance lama
+  if (window.tinymce) {
+    console.log("🧹 Destroy old editors");
+    if (window.tinymce.get("mailBody")) {
+  window.tinymce.get("mailBody").remove();
+}
+  }
+
+  const textarea = document.querySelector("#mailBody");
+
+  if (!textarea) {
+    console.error("❌ #mailBody NOT FOUND IN DOM");
     return;
   }
 
+  console.log("✅ textarea found");
+
+  const body = window.composeBody || "";
+
+  console.log("📦 composeBody =", body);
+
   window.tinymce.init({
     selector: "#mailBody",
+    init_instance_callback: (editor) => {
+  console.log("🔥 FINAL FORCE CONTENT");
+
+  const body = window.composeBody || "";
+
+  editor.setContent(body);
+},
     height: 350,
     menubar: true,
     plugins: ["link","image","table","lists","code","fullscreen"],
     toolbar:
       "undo redo | fontfamily fontsize | bold italic underline | forecolor backcolor | alignleft aligncenter alignright | bullist numlist | link image table | code fullscreen",
     content_style: "body{font-family:Segoe UI;font-size:14px}",
+
     setup: (editor) => {
+
       editor.on("init", () => {
-        editorInitialized = true;
+
+        console.log("✅ TinyMCE INIT EVENT");
+
+        // 🔥 SET CONTENT
+        editor.setContent(body);
+
+        console.log("✅ Content injected (1x)");
+
+        // 🔥 BACKUP INJECTION (ANTI BUG)
+        setTimeout(() => {
+          editor.setContent(body);
+          console.log("🔁 Content injected (50ms)");
+        }, 50);
+
+        setTimeout(() => {
+          editor.setContent(body);
+          console.log("🔁 Content injected (200ms)");
+        }, 200);
+
       });
+
     },
   });
 }
 
+/* =========================
+   ATTACHMENT
+========================= */
 export function renderAttachments() {
   const list = qs("#attachmentList");
   if (!list) return;
@@ -94,69 +157,56 @@ export function mountAttachmentInput() {
     attachments.push(file);
     renderAttachments();
   });
-
-  document.addEventListener("paste", (e) => {
-    const items = e.clipboardData?.items || [];
-
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-
-      if (item.type.includes("image")) {
-        const file = item.getAsFile();
-        attachments.push(file);
-        renderAttachments();
-      }
-    }
-  });
 }
 
-export function initDragAttachment() {
-  const box = qs(".compose-box");
-  if (!box) return;
+/* =========================
+   RECIPIENT CHIP
+========================= */
 
-  box.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    box.classList.add("dragging");
-  });
-
-  box.addEventListener("dragleave", () => {
-    box.classList.remove("dragging");
-  });
-
-  box.addEventListener("drop", (e) => {
-    e.preventDefault();
-    box.classList.remove("dragging");
-
-    const files = e.dataTransfer.files;
-    for (let i = 0; i < files.length; i++) {
-      attachments.push(files[i]);
-    }
-
-    renderAttachments();
-    undoManager.notify(files.length + " file attached");
-  });
+function getState(type) {
+  if (type === "to") return recipients;
+  if (type === "cc") return ccRecipients;
+  if (type === "bcc") return bccRecipients;
 }
 
-export function addRecipient(email) {
-  if (recipients.includes(email)) return;
+function getContainer(type) {
+  if (type === "to") return qs("#toContainer");
+  if (type === "cc") return qs("#ccContainer");
+  if (type === "bcc") return qs("#bccContainer");
+}
 
-  recipients.push(email);
+function getInput(type) {
+  if (type === "to") return qs("#mailToInput");
+  if (type === "cc") return qs("#mailCcInput");
+  if (type === "bcc") return qs("#mailBccInput");
+}
+
+function addRecipientTo(type, email) {
+  const list = getState(type);
+  const container = getContainer(type);
+  const input = getInput(type);
+
+  if (!list || list.includes(email)) return;
+
+  list.push(email);
 
   const chip = document.createElement("div");
   chip.className = "recipient-chip";
-  chip.dataset.email = email; // 🔥 FIX
+  chip.dataset.email = email;
 
   chip.innerHTML = `${email}<span class="recipient-remove">×</span>`;
 
   chip.querySelector(".recipient-remove").onclick = () => {
     chip.remove();
-    recipients = recipients.filter((e) => e !== email);
+    const idx = list.indexOf(email);
+    if (idx > -1) list.splice(idx, 1);
   };
 
-  qs("#toContainer")?.insertBefore(chip, qs("#mailToInput"));
+  container?.insertBefore(chip, input);
 }
-export function initRecipientChips() {
-  const input = qs("#mailToInput");
+
+function initRecipientInput(selector, type) {
+  const input = qs(selector);
   if (!input) return;
 
   input.addEventListener("keydown", (e) => {
@@ -165,58 +215,75 @@ export function initRecipientChips() {
 
       const email = input.value.trim().replace(",", "");
       if (email && isValidEmail(email)) {
-  addRecipient(email);
-}
+        addRecipientTo(type, email);
+      }
 
       input.value = "";
     }
   });
 }
-export function preloadRecipients() {
-  const input = qs("#mailToInput");
-  if (!input || !input.value) return;
 
-  const emails = input.value;
-  input.value = "";
-
-  emails.split(",").forEach((e) => addRecipient(e.trim()));
+export function initRecipientChips() {
+  initRecipientInput("#mailToInput", "to");
+  initRecipientInput("#mailCcInput", "cc");
+  initRecipientInput("#mailBccInput", "bcc");
 }
 
+/* =========================
+   COMPOSE
+========================= */
 export async function composeMail() {
+
+  console.log("📨 OPEN COMPOSE");
+
   const preview = qs(".mail-preview");
   preview.innerHTML = skeletonPreview();
 
-  // 🔥 reset state
   recipients = [];
+  ccRecipients = [];
+  bccRecipients = [];
   attachments = [];
 
   await loadEditor();
 
   const html = await safeText("/mail/compose");
+
+  console.log("📦 COMPOSE HTML LOADED");
+
   preview.innerHTML = html;
 
-  requestAnimationFrame(() => {
+  setTimeout(() => {
+    console.log("🚀 INIT COMPOSE MODULES");
+
     initEditor();
-    initDragAttachment();
     initRecipientChips();
-    preloadRecipients();
     mountAttachmentInput();
-  });
+
+  }, 50);
 }
+
+/* =========================
+   SEND
+========================= */
 export async function sendMail() {
   try {
+    console.log("📤 SEND MAIL");
+
     const form = new FormData();
 
-    // ambil langsung dari input
-    const input = qs("#mailToInput");
-if (input && input.value.trim()) {
-  addRecipient(input.value.trim());
-  input.value = "";
-}
+    ["to", "cc", "bcc"].forEach(type => {
+      const input = getInput(type);
+      if (input && input.value.trim()) {
+        addRecipientTo(type, input.value.trim());
+        input.value = "";
+      }
+    });
 
-const to = getToEmails();
-    const cc = normalizeEmails(qs("#mailCc")?.value || "");
-const bcc = normalizeEmails(qs("#mailBcc")?.value || "");
+    const to = recipients.join(",");
+    const cc = ccRecipients.join(",");
+    const bcc = bccRecipients.join(",");
+
+    console.log("📨 TO:", to);
 
     if (!to.trim()) {
       undoManager.notify("Recipient required ❌");
@@ -230,9 +297,13 @@ const bcc = normalizeEmails(qs("#mailBcc")?.value || "");
     form.append("subject", qs("#mailSubject")?.value || "");
 
     const editor = tinymce.get("mailBody");
-    form.append("body", editor ? editor.getContent() : "");
 
-    // attachments
+    const content = editor ? editor.getContent() : "";
+
+    console.log("📝 BODY:", content);
+
+    form.append("body", content);
+
     attachments.forEach(file => {
       form.append("attachments[]", file);
     });
@@ -243,44 +314,41 @@ const bcc = normalizeEmails(qs("#mailBcc")?.value || "");
     });
 
     undoManager.notify("Email sent ✅");
+
     recipients = [];
-attachments = [];
+    ccRecipients = [];
+    bccRecipients = [];
+    attachments = [];
 
     loadFolder("inbox");
 
-// kosongkan preview
-qs(".mail-preview").innerHTML = `
-  <div class="empty-preview">
-    📧<br>Select an email to read
-  </div>
-`;
+    qs(".mail-preview").innerHTML = `
+      <div class="empty-preview">
+        📧<br>Select an email to read
+      </div>
+    `;
 
   } catch (e) {
-    console.error(e);
+    console.error("❌ SEND ERROR:", e);
     undoManager.notify("Failed to send ❌");
   }
 }
 
-function getEmails(selector) {
-  return Array.from(document.querySelectorAll(selector))
-    .map(el => el.dataset.email || el.textContent.trim())
-    .filter(Boolean)
-    .join(",");
-}
-
-
-function getToEmails() {
-  return recipients.join(",");
-}
-
-function normalizeEmails(str) {
-  return str
-    .split(",")
-    .map(e => e.trim())
-    .filter(Boolean)
-    .join(",");
-}
-
+/* =========================
+   UTIL
+========================= */
 function isValidEmail(email) {
   return /\S+@\S+\.\S+/.test(email);
+}
+
+export function toggleCc() {
+  const row = qs("#ccRow");
+  if (!row) return;
+  row.style.display = row.style.display === "none" ? "flex" : "none";
+}
+
+export function toggleBcc() {
+  const row = qs("#bccRow");
+  if (!row) return;
+  row.style.display = row.style.display === "none" ? "flex" : "none";
 }
