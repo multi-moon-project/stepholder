@@ -6,11 +6,90 @@ HELPER: EXTRACT EMAIL
 function extractEmail(raw) {
   if (!raw) return "";
 
-  // ambil email di dalam <>
-  const match = raw.match(/<([^>]+)>/);
-  if (match) return match[1].toLowerCase();
+  // Microsoft Graph object
+  if (typeof raw === "object") {
+    const email = raw.emailAddress?.address || raw.address || "";
+    return String(email).toLowerCase().trim();
+  }
 
-  return raw.toLowerCase();
+  // String format
+  if (typeof raw === "string") {
+    const str = raw.toLowerCase().trim();
+
+    // Ambil email di dalam <>
+    const bracketMatch = str.match(/<\s*([^>]+?)\s*>/);
+    if (bracketMatch && bracketMatch[1]) {
+      return bracketMatch[1].trim();
+    }
+
+    // Fallback: ambil pola email di mana pun
+    const emailMatch = str.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
+    if (emailMatch && emailMatch[0]) {
+      return emailMatch[0].toLowerCase().trim();
+    }
+
+    return "";
+  }
+
+  return "";
+}
+
+/* ======================
+HELPER: EXTRACT NAME
+====================== */
+function extractName(raw) {
+  if (!raw) return "";
+
+  // Microsoft Graph object
+  if (typeof raw === "object") {
+    const name = raw.emailAddress?.name || raw.name || "";
+    return String(name).toLowerCase().trim();
+  }
+
+  // String format
+  if (typeof raw === "string") {
+    return raw
+      .toLowerCase()
+      .replace(/<\s*[^>]+?\s*>/g, "")
+      .replace(/[<>"']/g, "")
+      .trim();
+  }
+
+  return "";
+}
+
+/* ======================
+HELPER: DEBUG LOGGER
+====================== */
+function debugRuleMail(mail, rules, normalized) {
+  console.group("RULE ENGINE DEBUG");
+  console.log("MAIL RAW:", mail);
+  console.log("MAIL FROM RAW:", mail?.from);
+  console.log("MAIL FROM TYPE:", typeof mail?.from);
+  console.log("NORMALIZED FROM EMAIL:", normalized.fromEmail);
+  console.log("NORMALIZED FROM NAME:", normalized.fromName);
+  console.log("NORMALIZED SUBJECT:", normalized.subject);
+  console.log("NORMALIZED BODY PREVIEW:", normalized.body.slice(0, 200));
+  console.log("RULES:", rules);
+  console.groupEnd();
+}
+
+function debugRuleCheck(rule, debugData) {
+  console.group(`RULE CHECK [${rule.id ?? "no-id"}]`);
+  console.log("RULE RAW:", rule);
+  console.log("CONDITION TYPE:", rule.conditionType);
+  console.log("CONDITION VALUE RAW:", rule.conditionValue);
+  console.log("CONDITION VALUE NORMALIZED:", debugData.value);
+  console.log("FROM EMAIL:", debugData.fromEmail);
+  console.log("FROM NAME:", debugData.fromName);
+  console.log("SUBJECT:", debugData.subject);
+  console.log("BODY SAMPLE:", debugData.body.slice(0, 200));
+  console.log("EMAIL MATCH:", debugData.emailMatch);
+  console.log("NAME MATCH:", debugData.nameMatch);
+  console.log("SUBJECT MATCH:", debugData.subjectMatch);
+  console.log("BODY MATCH:", debugData.bodyMatch);
+  console.log("FINAL MATCH:", debugData.match);
+  console.groupEnd();
 }
 
 /* ======================
@@ -151,61 +230,106 @@ export function applyRules(mail, rules = []) {
 
   if (!rules || rules.length === 0) return actions;
 
-  // 🔥 normalize data
-  const fromRaw = (mail.from || "").toLowerCase();
-  const fromEmail = extractEmail(mail.from);
-
-  const subject = (mail.subject || "").toLowerCase();
-  const body = (
-    mail.fullBody ||
-    mail.bodyPreview ||
+  const fromEmail = extractEmail(mail?.from);
+  const fromName = extractName(mail?.from);
+  const subject = String(mail?.subject || "").toLowerCase().trim();
+  const body = String(
+    mail?.fullBody ||
+    mail?.bodyPreview ||
     ""
-  ).toLowerCase();
+  ).toLowerCase().trim();
+
+  debugRuleMail(mail, rules, {
+    fromEmail,
+    fromName,
+    subject,
+    body
+  });
 
   for (const rule of rules) {
-
     let match = false;
-    const value = (rule.conditionValue || "").toLowerCase();
+
+    const value = String(rule?.conditionValue || "").toLowerCase().trim();
+
+    let emailMatch = false;
+    let nameMatch = false;
+    let subjectMatch = false;
+    let bodyMatch = false;
 
     /* ===== SENDER ===== */
     if (rule.conditionType === "senderContains") {
-      if (
-        fromRaw.includes(value) ||   // match nama/display
-        fromEmail.includes(value)    // match email
-      ) {
+      emailMatch = !!fromEmail && fromEmail.includes(value);
+      nameMatch = !!fromName && fromName.includes(value);
+
+      if (emailMatch || nameMatch) {
         match = true;
       }
     }
 
     /* ===== SUBJECT ===== */
     if (rule.conditionType === "subjectContains") {
-      if (subject.includes(value)) {
+      subjectMatch = !!subject && subject.includes(value);
+
+      if (subjectMatch) {
         match = true;
       }
     }
 
     /* ===== BODY ===== */
     if (rule.conditionType === "bodyContains") {
-      if (body.includes(value)) {
+      bodyMatch = !!body && body.includes(value);
+
+      if (bodyMatch) {
         match = true;
       }
     }
 
+    debugRuleCheck(rule, {
+      value,
+      fromEmail,
+      fromName,
+      subject,
+      body,
+      emailMatch,
+      nameMatch,
+      subjectMatch,
+      bodyMatch,
+      match
+    });
+
     /* ===== APPLY ACTION ===== */
     if (match) {
+      console.warn("RULE MATCHED ✅", {
+        rule,
+        mail,
+        actionsBefore: { ...actions }
+      });
+
       if (rule.delete) actions.delete = true;
       if (rule.read) actions.read = true;
       if (rule.folder) actions.moveTo = rule.folder;
+
+      console.warn("RULE ACTIONS RESULT ✅", actions);
       break;
     }
+  }
+
+  if (!actions.delete && !actions.read && !actions.moveTo) {
+    console.warn("NO RULE MATCHED ❌", {
+      mail,
+      normalized: {
+        fromEmail,
+        fromName,
+        subject,
+        bodySample: body.slice(0, 200)
+      },
+      rules
+    });
   }
 
   return actions;
 }
 
-/* ======================
-NEW RULE UI
-====================== */
 export function newRule() {
   document.getElementById("editingRuleId").value = "";
 

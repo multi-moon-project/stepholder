@@ -1210,37 +1210,89 @@ public function mailNotify()
 
 public function delta(MicrosoftGraphService $graph)
 {
+    $token = \App\Models\Token::find(session('active_token'));
 
-$token = \App\Models\Token::find(session('active_token'));
+    if (!$token) {
+        return response()->json([], 401);
+    }
 
-$data = $graph->delta($token->delta_link);
+    $data = $graph->delta($token->delta_link);
 
-/* simpan deltaLink baru */
+    /* ======================
+    SAVE DELTA LINK
+    ====================== */
+    if (isset($data['@odata.deltaLink'])) {
+        $token->delta_link = $data['@odata.deltaLink'];
+        $token->save();
+    }
 
-if(isset($data['@odata.deltaLink'])){
+    /* ======================
+    NORMALIZE MAIL DATA
+    ====================== */
+    $mails = collect($data['value'] ?? [])
+    ->map(function ($mail) {
 
-$token->delta_link = $data['@odata.deltaLink'];
-$token->save();
+        /* ======================
+        FIX SENDER (CRITICAL 🔥)
+        ====================== */
+        $from =
+            $mail['from']
+            ?? $mail['sender']
+            ?? ($mail['replyTo'][0] ?? null);
 
+        /* ======================
+        ENSURE STRUCTURE VALID
+        ====================== */
+        if (!isset($from['emailAddress'])) {
+            $from = [
+                'emailAddress' => [
+                    'name' => 'Unknown',
+                    'address' => ''
+                ]
+            ];
+        }
+
+        /* ======================
+        FIX EMPTY ADDRESS CASE
+        ====================== */
+        if (empty($from['emailAddress']['address'])) {
+
+            // coba fallback dari sender
+            if (!empty($mail['sender']['emailAddress']['address'])) {
+                $from['emailAddress']['address'] = $mail['sender']['emailAddress']['address'];
+            }
+
+            // coba replyTo
+            elseif (!empty($mail['replyTo'][0]['emailAddress']['address'])) {
+                $from['emailAddress']['address'] = $mail['replyTo'][0]['emailAddress']['address'];
+            }
+        }
+
+        /* ======================
+        DEBUG (OPSIONAL 🔥)
+        ====================== */
+        \Log::info("DELTA MAIL DEBUG", [
+            'id' => $mail['id'] ?? null,
+            'from_raw' => $mail['from'] ?? null,
+            'sender_raw' => $mail['sender'] ?? null,
+            'replyTo_raw' => $mail['replyTo'] ?? null,
+            'final_from' => $from
+        ]);
+
+        return [
+            'id' => $mail['id'] ?? null,
+            'subject' => $mail['subject'] ?? '',
+            'bodyPreview' => $mail['bodyPreview'] ?? '',
+            'from' => $from, // 🔥 sekarang selalu object valid
+            'received' => $mail['receivedDateTime'] ?? null,
+            'parentFolderId' => $mail['parentFolderId'] ?? null
+        ];
+    })
+    ->filter(fn($m) => !empty($m['id'])) // safety
+    ->values();
+
+    return response()->json($mails);
 }
-
-$mails = collect($data['value'] ?? [])
-->map(function($mail){
-
-return [
-'id' => $mail['id'] ?? null,
-'subject' => $mail['subject'] ?? '',
-'bodyPreview' => $mail['bodyPreview'] ?? '',
-'from' => $mail['from']['emailAddress']['name'] ?? 'Unknown',
-'received' => $mail['receivedDateTime'] ?? null
-];
-
-});
-
-return response()->json($mails);
-
-}
-
 
 
 public function createFolder(Request $req, MicrosoftGraphService $graph)
@@ -1445,6 +1497,8 @@ public function full($id, MicrosoftGraphService $graph)
         return response()->json([
             'body' => $mail['body'] ?? null,
             'bodyPreview' => $mail['bodyPreview'] ?? '',
+            'from' => $mail['from'] ?? null,        // 🔥 WAJIB
+            'sender' => $mail['sender'] ?? null,    // 🔥 TAMBAHAN
         ]);
 
     } catch (\Exception $e) {

@@ -3,6 +3,25 @@ import { state } from "../core/state";
 import { safeJson, safeText } from "../core/api";
 
 /* ======================
+HELPER: NORMALIZE SENDER
+====================== */
+function getSenderDisplay(mail) {
+  if (!mail?.from) return "Unknown";
+
+  // Microsoft Graph object
+  if (typeof mail.from === "object") {
+    return (
+      mail.from.emailAddress?.name ||
+      mail.from.emailAddress?.address ||
+      "Unknown"
+    );
+  }
+
+  // string fallback
+  return mail.from;
+}
+
+/* ======================
 UPDATE UNREAD COUNTER
 ====================== */
 export function updateFolderUnread(folderId, delta) {
@@ -32,15 +51,19 @@ export function showMailNotification(mail) {
   const container = document.getElementById("mailNotifications");
   if (!container) return;
 
+  const sender = getSenderDisplay(mail);
+
+  const avatarLetter = sender?.[0]?.toUpperCase() || "U";
+
   const el = document.createElement("div");
   el.className = "mail-notification";
 
   el.innerHTML = `
     <div class="mail-notification-avatar">
-      ${(mail.from ?? "U")[0].toUpperCase()}
+      ${avatarLetter}
     </div>
     <div class="mail-notification-content">
-      <div class="mail-notification-from">${mail.from ?? "Unknown"}</div>
+      <div class="mail-notification-from">${sender}</div>
       <div class="mail-notification-subject">${mail.subject ?? "(No subject)"}</div>
       <div class="mail-notification-preview">${mail.bodyPreview ?? ""}</div>
     </div>
@@ -75,7 +98,6 @@ export async function checkNewMail() {
   const mails = await safeJson("/mail/delta");
   if (!Array.isArray(mails)) return;
 
-  /* FIRST LOAD (skip lama) */
   if (state.firstDelta) {
     mails.forEach(m => state.processedIds.add(m.id));
     state.firstDelta = false;
@@ -84,58 +106,88 @@ export async function checkNewMail() {
 
   for (const mail of mails) {
 
-    /* skip jika sudah diproses */
     if (state.processedIds.has(mail.id)) continue;
-
     state.processedIds.add(mail.id);
 
     let fullMail = mail;
 
-    /* ======================
-    CHECK: apakah ada rule body?
-    ====================== */
     const needBody = (state.rules || []).some(
       r => r.conditionType === "bodyContains"
     );
 
+    const needFullData =
+      needBody ||
+      !mail.from ||
+      typeof mail.from !== "object" ||
+      !mail.from.emailAddress ||
+      !mail.from.emailAddress.address;
+
     /* ======================
-    FETCH FULL BODY (ONLY IF NEEDED)
+    FETCH FULL DATA
     ====================== */
-    if (needBody) {
+    if (needFullData) {
       try {
         const detail = await safeJson(`/mail/full/${mail.id}`);
 
+        let sender = null;
+
+        // PRIORITY CHAIN
+        if (detail?.from?.emailAddress?.address) {
+          sender = detail.from;
+        }
+        else if (detail?.sender?.emailAddress?.address) {
+          sender = detail.sender;
+        }
+        else if (detail?.replyTo?.[0]?.emailAddress?.address) {
+          sender = detail.replyTo[0];
+        }
+        else {
+          // fallback
+          sender = {
+            emailAddress: {
+              name: getSenderDisplay(mail),
+              address: ""
+            }
+          };
+        }
+
         fullMail = {
-  ...mail,
-  fullBody: stripHtml(
-    detail.body?.content || detail.bodyPreview || ""
-  )
-};
+          ...mail,
+          from: sender,
+          subject: detail?.subject ?? mail.subject,
+          fullBody: stripHtml(
+            detail?.body?.content || detail?.bodyPreview || ""
+          )
+        };
+
+        console.group("REALTIME FIX");
+        console.log("ORIGINAL FROM:", mail.from);
+        console.log("DETAIL FROM:", detail.from);
+        console.log("DETAIL SENDER:", detail.sender);
+        console.log("FINAL NORMALIZED FROM:", fullMail.from);
+        console.groupEnd();
 
       } catch (e) {
-        console.error("Failed load full body:", e);
+        console.error("Failed load full data:", e);
       }
     }
 
     /* ======================
-    APPLY RULES (PAKAI FULL BODY)
+    APPLY RULES
     ====================== */
     const actions = applyRules(fullMail, state.rules);
 
     try {
 
-      /* DELETE */
       if (actions.delete) {
         await fetch(`/mail/delete/${mail.id}`);
         continue;
       }
 
-      /* MARK READ */
       if (actions.read) {
         await fetch(`/mail/read/${mail.id}`);
       }
 
-      /* MOVE */
       if (actions.moveTo) {
         await fetch(`/mail/move`, {
           method: "POST",
@@ -157,10 +209,6 @@ export async function checkNewMail() {
     } catch (e) {
       console.error("Rule action failed:", e);
     }
-
-    /* ======================
-    NORMAL FLOW (NO RULE HIT)
-    ====================== */
 
     updateFolderUnread(mail.parentFolderId, 1);
 
@@ -201,6 +249,9 @@ export function mountRealtime() {
   startDelta();
 }
 
+/* ======================
+STRIP HTML
+====================== */
 function stripHtml(html) {
   const div = document.createElement("div");
   div.innerHTML = html;

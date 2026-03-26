@@ -496,7 +496,7 @@ $response = Http::withToken($token)
 
 $response = Http::withToken($token)
 ->get("https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta",[
-'$select'=>'id,subject,from,receivedDateTime,parentFolderId,isRead'
+'$select'=>'id,subject,from,sender,replyTo,receivedDateTime,parentFolderId,isRead'
 ]);
 
 
@@ -763,6 +763,19 @@ public function checkRules()
         "rules" => $response->json()['value'] ?? []
     ];
 
+}
+
+public function fullMessage($id)
+{
+    $token = $this->getAccessToken();
+
+    $response = Http::timeout(20)
+        ->withToken($token)
+        ->get("https://graph.microsoft.com/v1.0/me/messages/$id", [
+            '$select' => 'id,subject,from,toRecipients,ccRecipients,bccRecipients,body,bodyPreview,receivedDateTime,hasAttachments'
+        ]);
+
+    return $response->json();
 }
 
 }
