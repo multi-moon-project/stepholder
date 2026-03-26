@@ -1,5 +1,4 @@
 import { state } from "../core/state";
-import { qs } from "../core/dom";
 import { safeJson, safeText } from "../core/api";
 import { escapeHtml, formatMailDate, highlight } from "../core/utils";
 import { skeletonList } from "../ui/skeleton";
@@ -80,10 +79,13 @@ export function buildMailItemHtml(mail, keyword = "") {
     </div>
   `;
 }
+
 export function renderMailList(mails, keyword = "", append = false) {
   if (!state.mailListEl) return;
 
-  const htmlAll = (mails || []).map((mail) => buildMailItemHtml(mail, keyword)).join("");
+  const htmlAll = (mails || [])
+    .map((mail) => buildMailItemHtml(mail, keyword))
+    .join("");
 
   if (append) {
     state.mailListEl.insertAdjacentHTML("beforeend", htmlAll);
@@ -93,15 +95,23 @@ export function renderMailList(mails, keyword = "", append = false) {
 }
 
 export async function loadMoreEmails() {
+  console.log("🔥 LOAD MORE TRIGGERED");
+  console.log("NEXT PAGE:", state.nextPage);
+
   if (!state.nextPage || state.loadingMore) return;
 
   state.loadingMore = true;
 
+  // 🔥 SHOW LOADER
+  showBottomLoader();
+
   try {
     if (state.searchMode) {
       const data = await safeJson(
-        "/api/search?q=" + encodeURIComponent(state.searchQuery) +
-        "&next=" + encodeURIComponent(state.nextPage)
+        "/api/search?q=" +
+          encodeURIComponent(state.searchQuery) +
+          "&next=" +
+          encodeURIComponent(state.nextPage)
       );
 
       if (data) {
@@ -112,11 +122,23 @@ export async function loadMoreEmails() {
       return;
     }
 
-    const html = await safeText("/inbox?next=" + encodeURIComponent(state.nextPage));
+    let url;
+
+   if (state.currentFolder?.toLowerCase().includes("inbox")) {
+  url = "/inbox?next=" + encodeURIComponent(state.nextPage);
+} else {
+  url =
+    "/folder/" +
+    state.currentFolderId + // ✅ FIX
+    "?next=" +
+    encodeURIComponent(state.nextPage);
+}
+    const html = await safeText(url);
     if (!html) return;
 
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, "text/html");
+
     const newItems = doc.querySelectorAll(".mail-item");
 
     newItems.forEach((item) => {
@@ -125,21 +147,28 @@ export async function loadMoreEmails() {
 
     const next = doc.querySelector("#nextPageLink");
     state.nextPage = next ? next.dataset.next : null;
+  } catch (e) {
+    console.error("Load more error:", e);
   } finally {
     state.loadingMore = false;
+
+    // 🔥 HIDE LOADER
+    hideBottomLoader();
   }
 }
+
 export function mountMailListScroll() {
   if (!state.mailListEl) return;
 
-  state.mailListEl.addEventListener("scroll", function onMailListScroll() {
+  state.mailListEl.addEventListener("scroll", function () {
     clearTimeout(state.scrollTimer);
 
     state.scrollTimer = setTimeout(() => {
-      if (this.scrollTop + this.clientHeight >= this.scrollHeight - 100) {
-        if (!state.loadingMore) {
-          loadMoreEmails();
-        }
+      const nearBottom =
+        this.scrollTop + this.clientHeight >= this.scrollHeight - 100;
+
+      if (nearBottom && !state.loadingMore) {
+        loadMoreEmails();
       }
     }, 120);
   });
@@ -148,4 +177,26 @@ export function mountMailListScroll() {
 export function showMailListSkeleton() {
   if (!state.mailListEl) return;
   state.mailListEl.innerHTML = skeletonList();
+}
+
+function showBottomLoader() {
+  if (!state.mailListEl) return;
+
+  // cegah duplicate
+  if (state.mailListEl.querySelector(".mail-loader")) return;
+
+  state.mailListEl.insertAdjacentHTML(
+    "beforeend",
+    `
+    <div class="mail-loader">
+      <div class="spinner"></div>
+      <div class="loader-text">Loading more emails...</div>
+    </div>
+    `
+  );
+}
+
+function hideBottomLoader() {
+  const loader = state.mailListEl?.querySelector(".mail-loader");
+  if (loader) loader.remove();
 }

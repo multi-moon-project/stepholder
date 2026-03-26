@@ -309,6 +309,8 @@ Loading...
 </div>
 
 </div>
-
+<script>
+  window.__MAIL_NEXT_PAGE__ = @json($nextLink ?? null);
+</script>
 </body>
 </html>

@@ -22,12 +22,10 @@ export function toggleTrashButtons() {
 }
 
 export async function loadFolder(id, name, el) {
-
-   
-    
+  state.loadingMore = false;
   state.currentFolder = name;
 
-  // active folder highlight
+  // highlight
   qsa(".folder").forEach((f) => f.classList.remove("active"));
   if (el) el.classList.add("active");
 
@@ -46,26 +44,25 @@ export async function loadFolder(id, name, el) {
   }
 
   // =========================
+  // CACHE HIT
   // =========================
-// CACHE HIT
-// =========================
-if (!window.__dirtyFolders?.has(id) && state.folderCache?.has(id)) {
-    state.mailListEl.innerHTML = state.folderCache.get(id);
-    state.nextPage = null;
+  if (!window.__dirtyFolders?.has(id) && state.folderCache?.has(id)) {
+    const cache = state.folderCache.get(id);
 
-    // 🔥 REBIND setelah render dari cache
+    state.mailListEl.innerHTML = cache.html;
+    state.nextPage = cache.nextPage;
+
     refreshFolderCrudBindings();
-
     return;
   }
 
   // =========================
-  // LOADING STATE
+  // LOADING
   // =========================
   state.mailListEl.innerHTML = skeletonList();
 
   // =========================
-  // FETCH FOLDER
+  // FETCH
   // =========================
   const html = await safeText("/folder/" + id);
   if (!html) return;
@@ -75,32 +72,27 @@ if (!window.__dirtyFolders?.has(id) && state.folderCache?.has(id)) {
 
   const newList = doc.querySelector(".mail-list");
 
+  // 🔥 ambil nextPage dulu
+  const next = doc.querySelector("#nextPageLink");
+  const nextPage = next ? next.dataset.next : null;
+
   if (newList) {
     state.mailListEl.innerHTML = newList.innerHTML;
 
-    if (!state.folderCache) {
-      state.folderCache = new Map();
+    state.folderCache.set(id, {
+      html: newList.innerHTML,
+      nextPage: nextPage,
+    });
+
+    if (window.__dirtyFolders) {
+      window.__dirtyFolders.delete(id);
     }
-
-  state.folderCache.set(id, newList.innerHTML);
-
-// 🔥 CLEAN folder ini saja
-if (window.__dirtyFolders) {
-  window.__dirtyFolders.delete(id);
-}
   }
 
-  // =========================
-  // PAGINATION
-  // =========================
-  const next = doc.querySelector("#nextPageLink");
-  state.nextPage = next ? next.dataset.next : null;
+  // update pagination
+  state.nextPage = nextPage;
 
-  // =========================
-  // HISTORY PUSH
-  // =========================
   history.pushState({}, "", "/folder/" + id);
 
-  // 🔥 CRITICAL: REBIND EVENTS
   refreshFolderCrudBindings();
 }

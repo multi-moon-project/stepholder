@@ -205,6 +205,7 @@ window.menuDelete = menuDelete;
 window.menuRename = menuRename;
 }
 export async function initMailAppCore() {
+  state.nextPage = window.__MAIL_NEXT_PAGE__ ?? state.nextPage;
   state.mailListEl = qs(".mail-list");
   initFolderIcons();
   bindAccountMenu();
