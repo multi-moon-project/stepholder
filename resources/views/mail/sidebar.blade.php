@@ -1,5 +1,9 @@
 <div class="sidebar">
 
+<a href="/leads" class="folder" style="background:#f3f6fb;">
+    <i class="fa-solid fa-users"></i>
+    <span class="folder-name">Leads</span>
+</a>
 <h3>Folders</h3>
 
 <div class="folder-create" onclick="createFolder()">
@@ -9,6 +13,8 @@
   </svg>
   <span>New folder</span>
 </div>
+
+
 
 @foreach($folders ?? [] as $folder)
 <a href="#"

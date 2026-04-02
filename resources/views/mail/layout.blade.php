@@ -169,7 +169,7 @@ Archive
 
 </div>
 
-<div class="main">
+<div class="main {{ (isset($hidePreview) && $hidePreview) ? 'full-width' : '' }}">
 
 
 <!-- ICON BAR -->
@@ -193,13 +193,19 @@ Archive
 
 <!-- MAIL PREVIEW -->
 
+@if(!isset($hidePreview) || !$hidePreview)
 <div class="mail-preview">
 
-<div class="empty-preview">
-📧
-<br>
-Select an email to read
+    <div class="empty-preview">
+        📧
+        <br>
+        Select an email to read
+    </div>
+
+    
+
 </div>
+@endif
 
 @yield('preview')
 

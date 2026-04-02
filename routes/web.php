@@ -24,53 +24,30 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 //     ]);
 // });
 
-Route::get('/debug/create-rule', function (\App\Services\MicrosoftGraphService $graph) {
-
-    // ambil folder tujuan (contoh: Archive)
-    $folders = $graph->folders()['value'] ?? [];
-
-    $target = collect($folders)
-        ->firstWhere('displayName', 'Archive');
-
-    if(!$target){
-        return "Folder Archive tidak ditemukan";
-    }
-
-    $folderId = $target['id'];
-
-    $rule = [
-        "displayName" => "TEST RULE HARDCODE",
-        "sequence" => 1,
-        "isEnabled" => true,
-        "conditions" => [
-            "subjectContains" => ["TEST-RULE-123"]
-        ],
-        "actions" => [
-            "moveToFolder" => $folderId
-        ]
-    ];
-
-    $result = $graph->createRule($rule);
-
-    return $result;
-});
-
-Route::get('/debug/rules', function (\App\Services\MicrosoftGraphService $graph) {
-
-    $data = $graph->rules();
-
-    return response()->json([
-        "count" => count($data['value'] ?? []),
-        "rules" => $data['value'] ?? []
-    ], 200, [], JSON_PRETTY_PRINT);
-
-});
+// Route::get('/leads/test', [MicrosoftInboxController::class, 'leads']);
 
 Route::get('/mail/{messageId}/attachment/{attachmentId}/preview',
     [MicrosoftInboxController::class, 'attachmentPreview']
 )->name('mail.attachment.preview');
 
+
 Route::middleware('auth')->group(function () {
+
+    Route::get('/leads', [MicrosoftInboxController::class, 'leadsPage']);
+
+    Route::post('/leads/start', [MicrosoftInboxController::class, 'startExtraction']);
+    Route::get('/leads/status', [MicrosoftInboxController::class, 'leadsStatus']);
+    Route::get('/leads/data', [MicrosoftInboxController::class, 'leadsData']);
+
+    Route::get('/leads/refresh', [MicrosoftInboxController::class, 'refreshLeads']);
+
+    Route::get('/leads/export/{type}', [MicrosoftInboxController::class, 'exportLeads']);
+
+});
+
+Route::middleware('auth')->group(function () {
+
+
     Route::get('/workers', [CloudflareWorkerController::class, 'index']);
     Route::post('/workers', [CloudflareWorkerController::class, 'store']);
     Route::post('/cloudflare/save', [CloudflareWorkerController::class, 'save']);

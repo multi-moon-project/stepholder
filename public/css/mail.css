@@ -2553,3 +2553,194 @@ FIX RULES ISOLATION
   from { opacity: 0; transform: translateY(5px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* ======================
+LEADS UI
+====================== */
+
+.leads-container{
+padding:16px;
+}
+
+/* HEADER */
+
+.leads-header{
+display:flex;
+justify-content:space-between;
+align-items:center;
+margin-bottom:12px;
+}
+
+.leads-title{
+font-size:20px;
+font-weight:600;
+}
+
+.leads-subtitle{
+font-size:13px;
+color:#605e5c;
+margin-top:2px;
+}
+
+/* SEARCH */
+
+.leads-actions input{
+padding:6px 10px;
+border-radius:6px;
+border:1px solid #ddd;
+outline:none;
+font-size:13px;
+width:220px;
+}
+
+.leads-actions input:focus{
+border-color:#106ebe;
+}
+
+/* TABLE */
+
+.leads-table{
+display:flex;
+flex-direction:column;
+background:white;
+border:1px solid #edebe9;
+border-radius:6px;
+overflow:hidden;
+}
+
+/* ROW */
+
+.lead-row{
+display:flex;
+align-items:center;
+gap:12px;
+padding:12px 14px;
+border-bottom:1px solid #f3f2f1;
+cursor:pointer;
+transition:.15s;
+}
+
+.lead-row:hover{
+background:#f6f8fb;
+}
+
+.lead-row:last-child{
+border-bottom:none;
+}
+
+/* AVATAR */
+
+.lead-avatar{
+width:34px;
+height:34px;
+border-radius:50%;
+background:#106ebe;
+color:white;
+display:flex;
+align-items:center;
+justify-content:center;
+font-weight:600;
+font-size:13px;
+}
+
+/* INFO */
+
+.lead-info{
+flex:1;
+min-width:0;
+}
+
+.lead-name{
+font-size:14px;
+font-weight:600;
+white-space:nowrap;
+overflow:hidden;
+text-overflow:ellipsis;
+}
+
+.lead-email{
+font-size:13px;
+color:#605e5c;
+white-space:nowrap;
+overflow:hidden;
+text-overflow:ellipsis;
+}
+
+/* SOURCE BADGE */
+
+.lead-source{
+font-size:11px;
+padding:4px 8px;
+border-radius:12px;
+text-transform:capitalize;
+}
+
+/* COLORS */
+
+.lead-source.people{
+background:#e5f1fb;
+color:#106ebe;
+}
+
+.lead-source.contact{
+background:#e8f5e9;
+color:#107c10;
+}
+
+.lead-source.directory{
+background:#fff4ce;
+color:#8a6d00;
+}
+
+.lead-source.inbox_from,
+.lead-source.inbox_to,
+.lead-source.inbox_cc{
+background:#fde7e9;
+color:#a4262c;
+}
+
+/* PREVIEW PANEL */
+
+.leads-preview{
+padding:20px;
+color:#323130;
+}
+/* EXPORT BUTTON */
+
+.leads-export{
+display:flex;
+gap:8px;
+margin-left:10px;
+}
+
+.export-btn{
+display:flex;
+align-items:center;
+gap:6px;
+
+padding:6px 10px;
+
+background:white;
+border:1px solid #ddd;
+
+border-radius:6px;
+
+font-size:12px;
+text-decoration:none;
+color:#333;
+
+transition:.15s;
+}
+
+.export-btn:hover{
+background:#f3f2f1;
+border-color:#bbb;
+}
+.main.full-width .mail-list {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+.main.full-width .mail-preview {
+    display: none !important;
+}

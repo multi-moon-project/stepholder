@@ -1,4 +1,5 @@
 // file app.js
+import { initLeads, copyLead, emailLead } from "./modules/leads.js";
 import { openOneDrive, closeOneDrive } from "./modules/onedrive.js";
 import { closeSettings,openSettings, loadRules, loadRulesToState, createRule, newRule, deleteRule, selectRule } from './modules/rules.js'
 import { state } from "./core/state.js";
@@ -65,7 +66,8 @@ import {
   initEditor,
   initRecipientChips,
   mountAttachmentInput,
-  loadEditor
+  loadEditor,
+  addRecipientDirect
 } from "./modules/compose.js";
 
 window.initEditor = initEditor;
@@ -182,7 +184,7 @@ window.replyMail = replyMail;
 window.replyAllMail = replyAllMail;
 window.forwardMail = forwardMail;
 
-
+window.addRecipientDirect = addRecipientDirect;
 
   window.selectMail = selectMail;
   window.selectItem = selectItem;
@@ -195,6 +197,9 @@ window.forwardMail = forwardMail;
 
   window.openOneDrive = openOneDrive;
 window.closeOneDrive = closeOneDrive;
+
+window.copyLead = copyLead;
+window.emailLead = emailLead;
   
 
 // 🔥 expose ke global
@@ -215,6 +220,7 @@ export async function initMailAppCore() {
   mountAttachmentPreviewHotkeys();
   mountSelection();
   mountKeyboardSelection();
+   initLeads();
   exposeLegacyGlobals();
   mountDragAndDrop();
   mountFolderDrop();

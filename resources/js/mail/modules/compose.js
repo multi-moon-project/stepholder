@@ -352,3 +352,16 @@ export function toggleBcc() {
   if (!row) return;
   row.style.display = row.style.display === "none" ? "flex" : "none";
 }
+
+export function addRecipientDirect(email){
+
+  const input = document.querySelector("#mailToInput");
+
+  if(!input) return;
+
+  input.value = email;
+
+  input.dispatchEvent(new KeyboardEvent("keydown", {
+    key: "Enter"
+  }));
+}

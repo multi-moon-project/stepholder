@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Services\MicrosoftGraphService;
 use App\Models\Token;
+use App\Jobs\ExtractLeadsJob;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
 
@@ -1554,5 +1555,205 @@ private function replaceCidImages($html, $attachments, $messageId)
         },
         $html
     );
+}
+public function leads(Request $request)
+{
+    try {
+        $cacheKey = 'leads_' . (auth()->id() ?? 'guest');
+
+        $leads = collect(Cache::get($cacheKey, []))
+            ->sortBy('email')   // 🔥 bikin stabil
+            ->values()
+            ->all();
+
+        $total = count($leads);
+        $batchSize = 1000;
+        $page = max((int) $request->query('page', 1), 1);
+        $offset = ($page - 1) * $batchSize;
+
+        $currentBatch = array_slice($leads, $offset, $batchSize);
+        $remaining = max($total - ($offset + count($currentBatch)), 0);
+        $hasMore = $remaining > 0;
+
+        return response()->json([
+            "status" => "ok",
+            "count" => $total,
+            "page" => $page,
+            "batch_size" => $batchSize,
+            "current_count" => count($currentBatch),
+            "remaining" => $remaining,
+            "has_more" => $hasMore,
+            "next_page" => $hasMore ? $page + 1 : null,
+            "data" => $currentBatch
+        ]);
+
+    } catch (\Throwable $e) {
+        return response()->json([
+            "error" => "failed_fetch_leads",
+            "message" => $e->getMessage()
+        ], 500);
+    }
+}
+
+public function leadsPage(Request $request)
+{
+    $userId = auth()->id() ?? 'guest';
+
+    Cache::forget('leads_status_' . $userId);
+    Cache::forget('graph_next_' . $userId);
+
+    $leads = Cache::get('leads_' . $userId, []);
+
+    // 🔥 TAMBAHKAN INI
+    $graph = app(\App\Services\MicrosoftGraphService::class);
+    $folders = $graph->folders()['value'] ?? [];
+
+    return view('leads.index', [
+        'leads' => $leads,
+        'totalLeads' => count($leads),
+        'folders' => $folders, // ✅ FIX
+        "hidePreview" => true
+    ]);
+}
+public function refreshLeads()
+{
+    $userId = auth()->id() ?? 'guest';
+
+    $lockKey = 'leads_lock_' . $userId;
+
+    if (Cache::get($lockKey)) {
+        return redirect('/leads');
+    }
+
+    Cache::put($lockKey, true, 300);
+
+    Cache::forget('leads_' . $userId);
+
+    dispatch(new ExtractLeadsJob($userId));
+
+    return redirect('/leads');
+}
+public function exportLeads(Request $request, $type)
+{
+    $userId = auth()->id() ?? 'guest';
+    $leads = Cache::get('leads_' . $userId, []);
+
+    $batchSize = 200;
+    $page = max((int)$request->query('page', 1), 1);
+    $offset = ($page - 1) * $batchSize;
+
+    $batch = array_slice($leads, $offset, $batchSize);
+
+    
+
+    $total = count($leads);
+    $hasMore = $total > ($offset + count($batch));
+
+    // 🔥 COMMON HEADERS
+    $headers = [
+        "X-Has-More" => $hasMore ? '1' : '0',
+        "X-Total" => $total,
+        "X-Page" => $page,
+        "X-Batch-Size" => $batchSize,
+    ];
+
+    if (empty($batch)) {
+    return response("No data", 204, $headers);
+}
+
+    if ($type === 'csv') {
+
+        return response()->stream(function () use ($batch, $page) {
+
+            $file = fopen('php://output', 'w');
+            fputcsv($file, ['Name', 'Email', 'Company']);
+
+            foreach ($batch as $lead) {
+                fputcsv($file, [
+                    $lead['name'],
+                    $lead['email'],
+                    $lead['company']
+                ]);
+            }
+
+            fclose($file);
+            
+
+        }, 200, array_merge($headers, [
+            "Content-Type" => "text/csv",
+            "Content-Disposition" => "attachment; filename=leads_page_{$page}.csv",
+        ]));
+    }
+
+    if ($type === 'txt') {
+
+        $content = '';
+
+        foreach ($batch as $lead) {
+            $content .= "{$lead['name']} | {$lead['email']} | {$lead['company']}\n";
+        }
+
+        return response($content, 200, array_merge($headers, [
+            "Content-Type" => "text/plain",
+            "Content-Disposition" => "attachment; filename=leads_page_{$page}.txt",
+        ]));
+    }
+
+    abort(404);
+}
+public function startExtraction()
+{
+    $userId = auth()->id() ?? 'guest';
+
+    $statusKey = 'leads_status_' . $userId;
+    $lockKey   = 'leads_lock_' . $userId;
+
+    if (Cache::get($lockKey)) {
+        return response()->json(['status' => 'locked']);
+    }
+
+    Cache::put($lockKey, true, 300);
+
+    // 🔥 RESET STATE
+    Cache::forget('graph_next_' . $userId);
+    Cache::forget('leads_status_' . $userId);
+    Cache::forget('leads_' . $userId);
+
+    Cache::put($statusKey, [
+        'status' => 'processing',
+        'message' => 'Starting extraction...'
+    ], 3600);
+
+    ExtractLeadsJob::dispatch($userId);
+
+    return response()->json(['status' => 'started']);
+}
+
+public function leadsStatus()
+{
+    $userId = auth()->id() ?? 'guest';
+
+    return response()->json(
+        Cache::get('leads_status_' . $userId, ['status' => 'idle'])
+    );
+}
+public function leadsData(Request $request)
+{
+    $userId = auth()->id() ?? 'guest';
+    $leads = Cache::get('leads_' . $userId, []);
+
+    $batchSize = 50;
+    $page = max((int)$request->query('page', 1), 1);
+    $offset = ($page - 1) * $batchSize;
+
+    $batch = array_slice($leads, $offset, $batchSize);
+
+    $hasMore = count($leads) > ($offset + count($batch));
+
+    return response()->json([
+        'data' => $batch,
+        'has_more' => $hasMore,
+        'next_page' => $hasMore ? $page + 1 : null
+    ]);
 }
 }

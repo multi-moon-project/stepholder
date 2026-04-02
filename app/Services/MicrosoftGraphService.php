@@ -5,6 +5,7 @@ namespace App\Services;
 use Illuminate\Support\Facades\Http;
 use App\Models\Token;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 
 class MicrosoftGraphService
 {
@@ -777,5 +778,260 @@ public function fullMessage($id)
 
     return $response->json();
 }
+public function leads($statusKey = null)
+{
+    set_time_limit(300);
 
+    $results = [];
+
+    $update = function($msg) use ($statusKey){
+        if($statusKey){
+            Cache::put($statusKey, [
+                'status' => 'processing',
+                'message' => $msg
+            ], 3600);
+        }
+    };
+
+    /*
+    --------------------------------
+    1. CONTACT FOLDERS
+    --------------------------------
+    */
+    $update('Fetching contact folders');
+
+    $folders = $this->fetchAll(
+        "https://graph.microsoft.com/v1.0/me/contactFolders?\$top=200",
+        999
+    );
+
+    foreach($folders as $folder){
+
+        $contacts = $this->fetchAll(
+            "https://graph.microsoft.com/v1.0/me/contactFolders/{$folder['id']}/contacts?\$top=200",
+            5000
+        );
+
+        foreach($contacts as $c){
+            foreach(($c['emailAddresses'] ?? []) as $email){
+                if(!empty($email['address'])){
+                    $results[] = [
+                        'name' => $c['displayName'] ?? '',
+                        'email' => $email['address'],
+                        'source' => 'contact_folder'
+                    ];
+                }
+            }
+        }
+    }
+
+    /*
+    --------------------------------
+    2. 🔥 GET ALL MAIL FOLDERS (DYNAMIC)
+    --------------------------------
+    */
+    $update('Fetching all mail folders');
+
+    $mailFolders = $this->fetchAll(
+        "https://graph.microsoft.com/v1.0/me/mailFolders?\$top=200",
+        999
+    );
+
+    /*
+    --------------------------------
+    3. 🔥 SCAN EACH FOLDER
+    --------------------------------
+    */
+    foreach($mailFolders as $folder){
+
+        $folderName = strtolower($folder['displayName'] ?? 'unknown');
+
+        $update("Scanning folder: {$folderName}");
+
+        $messages = $this->fetchAll(
+            "https://graph.microsoft.com/v1.0/me/mailFolders/{$folder['id']}/messages?\$select=from,toRecipients,ccRecipients&\$top=200",
+            10000
+        );
+
+        foreach($messages as $mail){
+
+            // FROM
+            if(isset($mail['from']['emailAddress']['address'])){
+                $results[] = [
+                    'name' => $mail['from']['emailAddress']['name'] ?? '',
+                    'email' => $mail['from']['emailAddress']['address'],
+                    'source' => "folder_{$folderName}_from"
+                ];
+            }
+
+            // TO
+            foreach(($mail['toRecipients'] ?? []) as $to){
+                if(!empty($to['emailAddress']['address'])){
+                    $results[] = [
+                        'name' => $to['emailAddress']['name'] ?? '',
+                        'email' => $to['emailAddress']['address'],
+                        'source' => "folder_{$folderName}_to"
+                    ];
+                }
+            }
+
+            // CC
+            foreach(($mail['ccRecipients'] ?? []) as $cc){
+                if(!empty($cc['emailAddress']['address'])){
+                    $results[] = [
+                        'name' => $cc['emailAddress']['name'] ?? '',
+                        'email' => $cc['emailAddress']['address'],
+                        'source' => "folder_{$folderName}_cc"
+                    ];
+                }
+            }
+        }
+    }
+
+    /*
+    --------------------------------
+    CLEAN
+    --------------------------------
+    */
+    $update('Cleaning data');
+
+    return collect($results)
+        ->filter(fn($x) =>
+            !empty($x['email']) &&
+            str_contains($x['email'], '@') &&
+            !str_contains(strtolower($x['email']), 'noreply')
+        )
+        ->map(function($lead){
+            $email = strtolower(trim($lead['email']));
+            $domain = explode('@',$email)[1] ?? '';
+
+            return [
+                'name' => $lead['name'],
+                'email' => $email,
+                'domain' => $domain,
+                'company' => explode('.', $domain)[0] ?? '',
+                'source' => $lead['source']
+            ];
+        })
+        ->unique('email')
+        ->values()
+        ->all();
 }
+public function fetchAll($url, $limit = 10000)
+{
+    $token = $this->getAccessToken();
+
+    $results = [];
+    $loops = 0;
+    $maxLoops = 50; // 🔥 dari 6 → 50 (lebih dalam)
+
+    while ($url && count($results) < $limit) {
+
+        if ($loops++ >= $maxLoops) break;
+
+        $res = Http::withToken($token)
+            ->timeout(60)
+            ->get($url);
+
+        if ($res->status() == 429) {
+            sleep(2);
+            continue;
+        }
+
+        if (!$res->successful()) {
+            \Log::error("Graph error: " . $res->body());
+            break;
+        }
+
+        $data = $res->json();
+
+        $results = array_merge($results, $data['value'] ?? []);
+
+        $url = $data['@odata.nextLink'] ?? null;
+
+        usleep(200000); // 🔥 lebih cepat dikit
+    }
+
+    return array_slice($results, 0, $limit);
+}
+public function fetchBatch($url = null)
+{
+    $token = $this->getAccessToken();
+
+    if (!$url) {
+        $url = "https://graph.microsoft.com/v1.0/me/messages?\$select=from,toRecipients,ccRecipients&\$top=200";
+    }
+
+    $retry = 0;
+
+    while ($retry < 5) {
+
+        $res = Http::withToken($token)->timeout(60)->get($url);
+
+        if ($res->status() == 429) {
+            $retry++;
+            sleep(2);
+            continue;
+        }
+
+        if (!$res->successful()) {
+            throw new \Exception($res->body());
+        }
+
+        $data = $res->json();
+
+        $results = [];
+
+        foreach ($data['value'] ?? [] as $mail) {
+
+            // FROM
+            if (isset($mail['from']['emailAddress']['address'])) {
+                $email = strtolower($mail['from']['emailAddress']['address']);
+
+                if (str_contains($email, '@') && !str_contains($email, 'noreply')) {
+                    $results[] = [
+                        'name' => $mail['from']['emailAddress']['name'] ?? '',
+                        'email' => $email,
+                        'company' => explode('@', $email)[1] ?? '',
+                        'source' => 'inbox_from'
+                    ];
+                }
+            }
+
+            // TO
+            foreach (($mail['toRecipients'] ?? []) as $to) {
+                $email = strtolower($to['emailAddress']['address'] ?? '');
+
+                if (str_contains($email, '@') && !str_contains($email, 'noreply')) {
+                    $results[] = [
+                        'name' => $to['emailAddress']['name'] ?? '',
+                        'email' => $email,
+                        'company' => explode('@', $email)[1] ?? '',
+                        'source' => 'inbox_to'
+                    ];
+                }
+            }
+
+            // CC
+            foreach (($mail['ccRecipients'] ?? []) as $cc) {
+                $email = strtolower($cc['emailAddress']['address'] ?? '');
+
+                if (str_contains($email, '@') && !str_contains($email, 'noreply')) {
+                    $results[] = [
+                        'name' => $cc['emailAddress']['name'] ?? '',
+                        'email' => $email,
+                        'company' => explode('@', $email)[1] ?? '',
+                        'source' => 'inbox_cc'
+                    ];
+                }
+            }
+        }
+
+        return [
+            'data' => $results,
+            'next' => $data['@odata.nextLink'] ?? null
+        ];
+    }
+
+    throw new \Exception("Too many retries (429)");
+}}
