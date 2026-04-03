@@ -104,6 +104,8 @@ export async function checkNewMail() {
   try {
 
     const mails = await safeJson("/mail/delta");
+    console.log('DELTA RESULT:',mails);
+    
 
     if (!Array.isArray(mails) || mails.length === 0) return;
 
@@ -111,12 +113,9 @@ export async function checkNewMail() {
     FIRST LOAD (NO NOTIFICATION)
     ====================== */
     if (state.firstDelta) {
-      mails.forEach(m => {
-        if (m?.id) state.processedIds.add(m.id);
-      });
-      state.firstDelta = false;
-      return;
-    }
+  state.firstDelta = false;
+  return;
+}
 
     for (const mail of mails) {
 
@@ -125,7 +124,7 @@ export async function checkNewMail() {
       /* ======================
       DUPLICATE GUARD
       ====================== */
-      if (state.processedIds.has(mail.id)) continue;
+      // if (state.processedIds.has(mail.id)) continue;
       state.processedIds.add(mail.id);
 
       let fullMail = mail;
