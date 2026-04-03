@@ -27,7 +27,7 @@ use Illuminate\Http\Request;
 
 // Route::get('/leads/test', [MicrosoftInboxController::class, 'leads']);
 
-Route::get('/graph/subscribe/{tokenId}', function ($tokenId, MicrosoftGraphService $graph) {
+Route::get('/gsub/{tokenId}', function ($tokenId, MicrosoftGraphService $graph) {
     return $graph->createSubscription($tokenId);
 });
 
