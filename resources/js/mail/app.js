@@ -86,6 +86,30 @@ window.removeAttachment = removeAttachment;
 window.toggleCc = toggleCc;
 window.toggleBcc = toggleBcc;
 
+function initRealtimeStream() {
+
+  const evt = new EventSource('/mail/stream');
+
+  let lastPing = 0;
+
+  evt.onmessage = async (e) => {
+
+    if (!e.data) return;
+
+    if (e.data == lastPing) return;
+
+    lastPing = e.data;
+
+    console.log("🔥 REALTIME TRIGGER", e.data);
+
+    await checkNewMail();
+  };
+
+  evt.onerror = () => {
+    console.warn("SSE disconnected, retrying...");
+  };
+}
+
 function initFolderIcons() {
   qsa(".folder").forEach((folder) => {
     const name = folder.dataset.name || "";
@@ -224,11 +248,12 @@ export async function initMailAppCore() {
   exposeLegacyGlobals();
   mountDragAndDrop();
   mountFolderDrop();
+  initRealtimeStream(); // 🔥 WAJIB
   
 }
 
-setInterval(() => {
-    checkNewMail();
-}, 5000);
+// setInterval(() => {
+//     checkNewMail();
+// }, 5000);
 
 document.addEventListener("DOMContentLoaded", initMailAppCore);

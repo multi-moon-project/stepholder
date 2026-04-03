@@ -15,42 +15,50 @@ private $token;
 public function __construct()
 {
 
-$token = Token::latest()->first();
-
-$this->token = $token->access_token;
 
 }
 
 
-    private function getAccessToken()
+private function resolveToken($tokenId = null)
 {
+    // 🔥 PRIORITAS: tokenId (untuk webhook / stateless)
+    if ($tokenId) {
+        $token = Token::find($tokenId);
 
+        if (!$token) {
+            throw new \Exception("Token not found");
+        }
+
+        return $token;
+    }
+
+    // 🔥 FALLBACK: session (untuk UI lama)
     $tokenId = session('active_token');
 
-    // jika session kosong atau token tidak ditemukan
     if(!$tokenId || !Token::find($tokenId)){
-
         $token = Token::latest()->first();
 
         if(!$token){
             abort(403,"Token tidak ada");
         }
 
-        // set session otomatis
         session(['active_token'=>$token->id]);
-
     }else{
-
         $token = Token::find($tokenId);
-
     }
+
+    return $token;
+}
+
+    private function getAccessToken($tokenId = null)
+{
+    $token = $this->resolveToken($tokenId);
 
     if(Carbon::now()->greaterThan($token->expires_at)){
         $token = $this->refreshToken($token);
     }
 
     return $token->access_token;
-
 }
 
 
@@ -85,10 +93,10 @@ return $token;
 
 
 
-public function inbox($nextLink = null)
+public function inbox($tokenId = null, $nextLink = null)
 {
 
-$accessToken = $this->getAccessToken();
+$accessToken = $this->getAccessToken($tokenId);
 
 if($nextLink){
 
@@ -127,10 +135,10 @@ return $response->json();
 // return $response->json();
 
 // }
-public function read($id)
+public function read($id,$tokenId = null)
 {
 
-$accessToken = $this->getAccessToken();
+$accessToken = $this->getAccessToken($tokenId);
 
 $response = Http::timeout(20)
 ->withToken($accessToken)
@@ -145,9 +153,9 @@ return $response->json();
 
 
 
-public function attachments($messageId)
+public function attachments($messageId,$tokenId = null)
 {
-    $token = $this->getAccessToken();
+    $token = $this->getAccessToken($tokenId);
 
     $response = Http::withToken($token)
         ->get("https://graph.microsoft.com/v1.0/me/messages/$messageId/attachments");
@@ -156,10 +164,10 @@ public function attachments($messageId)
 }
 
 
-public function downloadAttachment($messageId,$attachmentId)
+public function downloadAttachment($messageId,$attachmentId,$tokenId = null)
 {
 
-$accessToken = $this->getAccessToken();
+$accessToken = $this->getAccessToken($tokenId);
 
 $response = Http::withToken($accessToken)
 ->withHeaders([
@@ -173,10 +181,10 @@ return $response->json();
 
 
 
-public function search($q,$next=null)
+public function search($q,$next=null,$tokenId = null)
 {
 
-$token = $this->getAccessToken();
+$token = $this->getAccessToken($tokenId);
 
 if($next){
 
@@ -208,10 +216,10 @@ return $response->json();
 
 }
 
-public function folder($id)
+public function folder($id,$tokenId = null)
 {
 
-$accessToken = $this->getAccessToken();
+$accessToken = $this->getAccessToken($tokenId);
 
 $response = Http::withToken($accessToken)
 ->withHeaders([
@@ -231,10 +239,10 @@ return $response->json();
 
 
 
-public function markRead($id)
+public function markRead($id,$tokenId = null)
 {
 
-$accessToken = $this->getAccessToken();
+$accessToken = $this->getAccessToken($tokenId);
 
 Http::withToken($accessToken)
 ->withHeaders([
@@ -262,10 +270,10 @@ Http::withToken($accessToken)
 
 // }
 
-public function deleteMail($id)
+public function deleteMail($id,$tokenId = null)
 {
 
-$accessToken = $this->getAccessToken();
+$accessToken = $this->getAccessToken($tokenId);
 
 Http::withToken($accessToken)
 ->post("https://graph.microsoft.com/v1.0/me/messages/$id/move",[
@@ -276,10 +284,10 @@ Http::withToken($accessToken)
 
 
 
-public function sendMail($message)
+public function sendMail($message, $tokenId = null)
 {
 
-$token = $this->getAccessToken();
+$token = $this->getAccessToken($tokenId);
 
 $response = Http::withToken($token)
 ->post('https://graph.microsoft.com/v1.0/me/sendMail', $message);
@@ -288,10 +296,10 @@ return $response->json();
 
 }
 
-public function conversation($conversationId, $messageId = null)
+public function conversation($conversationId, $messageId = null,$tokenId = null)
 {
 
-$accessToken = $this->getAccessToken();
+$accessToken = $this->getAccessToken($tokenId);
 
 $response = Http::withToken($accessToken)
 ->withHeaders([
@@ -311,7 +319,7 @@ $emails = $data['value'] ?? [];
 // fallback jika conversation kosong
 if(empty($emails) && $messageId){
 
-$mail = $this->read($messageId);
+$mail = $this->read($messageId, $tokenId);
 
 $emails = [$mail];
 
@@ -323,10 +331,10 @@ return [
 
 }
 
-public function reply($messageId,$body)
+public function reply($messageId,$body,$tokenId = null)
 {
 
-$accessToken = $this->getAccessToken();
+$accessToken = $this->getAccessToken($tokenId);
 
 Http::withToken($accessToken)
 ->withHeaders([
@@ -347,10 +355,10 @@ Http::withToken($accessToken)
 
 }
 
-public function forward($messageId,$to,$body)
+public function forward($messageId,$to,$body,$tokenId = null)
 {
 
-$accessToken = $this->getAccessToken();
+$accessToken = $this->getAccessToken($tokenId);
 
 Http::withToken($accessToken)
 ->withHeaders([
@@ -373,10 +381,10 @@ Http::withToken($accessToken)
 }
 
 
-public function markUnread($id)
+public function markUnread($id,$tokenId = null)
 {
 
-$accessToken = $this->getAccessToken();
+$accessToken = $this->getAccessToken($tokenId);
 
 Http::withToken($accessToken)
 ->withHeaders([
@@ -389,9 +397,9 @@ Http::withToken($accessToken)
 }
 
 
-public function folders()
+public function folders($tokenId = null)
 {
-    $token = $this->getAccessToken();
+    $token = $this->getAccessToken($tokenId);
 
     $url = "https://graph.microsoft.com/v1.0/me/mailFolders?\$select=id,displayName,unreadItemCount,totalItemCount";
 
@@ -416,10 +424,10 @@ public function folders()
         'value' => $all
     ];
 }
-public function toggleFlag($id)
+public function toggleFlag($id,$tokenId = null)
 {
 
-$accessToken = $this->getAccessToken();
+$accessToken = $this->getAccessToken($tokenId);
 
 $mail = Http::withToken($accessToken)
 ->get("https://graph.microsoft.com/v1.0/me/messages/".$id)
@@ -439,10 +447,10 @@ Http::withToken($accessToken)
 }
 
 
-public function moveToInbox($id)
+public function moveToInbox($id,$tokenId = null)
 {
 
-$token = $this->getAccessToken();
+$token = $this->getAccessToken($tokenId);
 
 Http::withToken($token)
 ->post("https://graph.microsoft.com/v1.0/me/messages/$id/move",[
@@ -451,10 +459,10 @@ Http::withToken($token)
 
 }
 
-public function emptyTrash()
+public function emptyTrash($tokenId = null)
 {
 
-$token = $this->getAccessToken();
+$token = $this->getAccessToken($tokenId);
 
 $mails = Http::withToken($token)
 ->get("https://graph.microsoft.com/v1.0/me/mailFolders/deleteditems/messages")
@@ -469,10 +477,10 @@ Http::withToken($token)
 
 }
 
-public function deletePermanent($id)
+public function deletePermanent($id,$tokenId = null)
 {
 
-    $accessToken = $this->getAccessToken();
+    $accessToken = $this->getAccessToken($tokenId);
 
     Http::withToken($accessToken)
     ->withHeaders([
@@ -483,35 +491,40 @@ public function deletePermanent($id)
 }
 
 
-public function delta($deltaLink = null)
+public function delta($tokenId)
 {
+    $sub = \App\Models\GraphSubscription::where('token_id', $tokenId)->first();
 
-$token = $this->getAccessToken();
+    if (!$sub) {
+        throw new \Exception("Subscription tidak ditemukan");
+    }
 
-if($deltaLink){
+    $accessToken = $this->getAccessToken($tokenId);
 
-$response = Http::withToken($token)
-->get($deltaLink);
+    // 🔥 pakai deltaLink jika ada
+    $url = $sub->delta_link
+        ? $sub->delta_link
+        : "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?\$select=id,subject,from,sender,replyTo,receivedDateTime,parentFolderId,isRead";
 
-}else{
+    $response = Http::withToken($accessToken)->get($url);
 
-$response = Http::withToken($token)
-->get("https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta",[
-'$select'=>'id,subject,from,sender,replyTo,receivedDateTime,parentFolderId,isRead'
-]);
+    $data = $response->json();
 
+    // 🔥 SIMPAN deltaLink baru
+    if (isset($data['@odata.deltaLink'])) {
+        $sub->update([
+            'delta_link' => $data['@odata.deltaLink']
+        ]);
+    }
 
+    return $data;
 }
 
-return $response->json();
 
-}
-
-
-public function createFolder($name)
+public function createFolder($name, $tokenId = null)
 {
 
-$token = $this->getAccessToken();
+$token = $this->getAccessToken($tokenId);
 
 return Http::withToken($token)
 ->post("https://graph.microsoft.com/v1.0/me/mailFolders",[
@@ -520,10 +533,10 @@ return Http::withToken($token)
 
 }
 
-public function moveMail($id,$folderId)
+public function moveMail($id,$folderId,$tokenId = null)
 {
 
-$token = $this->getAccessToken();
+$token = $this->getAccessToken($tokenId);
 
 Http::withToken($token)
 ->post("https://graph.microsoft.com/v1.0/me/messages/$id/move",[
@@ -532,10 +545,10 @@ Http::withToken($token)
 
 }
 
-public function post($url,$data)
+public function post($url,$data,$tokenId = null)
 {
 
-    $token = $this->getAccessToken();
+    $token = $this->getAccessToken($tokenId);
 
     return Http::withToken($token)
         ->post("https://graph.microsoft.com/v1.0".$url,$data)
@@ -543,10 +556,10 @@ public function post($url,$data)
 
 }
 
-public function archiveMail($id)
+public function archiveMail($id,$tokenId = null)
 {
 
-$token = $this->getAccessToken();
+$token = $this->getAccessToken($tokenId);
 
 Http::withToken($token)
 ->post("https://graph.microsoft.com/v1.0/me/messages/$id/move",[
@@ -555,10 +568,10 @@ Http::withToken($token)
 
 }
 
-public function previewAttachment($messageId,$attachmentId)
+public function previewAttachment($messageId,$attachmentId,$tokenId = null)
 {
 
-$token = $this->getAccessToken();
+$token = $this->getAccessToken($tokenId);
 
 $url = "https://graph.microsoft.com/v1.0/me/messages/$messageId/attachments/$attachmentId/\$value";
 
@@ -570,10 +583,10 @@ return response($response->body(),200)
 
 }
 
-public function body($id)
+public function body($id,$tokenId = null)
 {
 
-$token = $this->getAccessToken();
+$token = $this->getAccessToken($tokenId);
 
 $response = Http::timeout(20)
 ->withToken($token)
@@ -585,20 +598,20 @@ return $response->json();
 
 }
 
-public function deleteFolder($id)
+public function deleteFolder($id,$tokenId = null)
 {
 
-    $token = $this->getAccessToken();
+    $token = $this->getAccessToken($tokenId);
 
     Http::withToken($token)
     ->delete("https://graph.microsoft.com/v1.0/me/mailFolders/".$id);
 
 }
 
-public function renameFolder($id,$name)
+public function renameFolder($id,$name,$tokenId = null)
 {
 
-$token = $this->getAccessToken();
+$token = $this->getAccessToken($tokenId);
 
 Http::withToken($token)
 ->patch("https://graph.microsoft.com/v1.0/me/mailFolders/".$id,[
@@ -607,10 +620,10 @@ Http::withToken($token)
 
 }
 
-public function rules()
+public function rules($tokenId = null)
 {
 
-$accessToken = $this->getAccessToken();
+$accessToken = $this->getAccessToken($tokenId);
 
 $response = Http::withToken($accessToken)
 ->get("https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messageRules");
@@ -619,10 +632,10 @@ return $response->json();
 
 }
 
-public function createRule($data)
+public function createRule($data, $tokenId = null)
 {
 
-$accessToken = $this->getAccessToken();
+$accessToken = $this->getAccessToken($tokenId);
 
 $response = Http::withToken($accessToken)
 ->post("https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messageRules",$data);
@@ -634,20 +647,20 @@ return [
 
 }
 
-public function deleteRule($id)
+public function deleteRule($id, $tokenId = null)
 {
 
-$accessToken = $this->getAccessToken();
+$accessToken = $this->getAccessToken($tokenId);
 
 Http::withToken($accessToken)
 ->delete("https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messageRules/".$id);
 
 }
 
-public function capabilities()
+public function capabilities($tokenId = null)
 {
 
-    $token = $this->getAccessToken();
+    $token = $this->getAccessToken($tokenId);
 
     $capabilities = [
 
@@ -728,10 +741,10 @@ public function capabilities()
 
 }
 
-public function scopes()
+public function scopes($tokenId = null)
 {
 
-    $token = $this->getAccessToken();
+    $token = $this->getAccessToken($tokenId);
 
     $parts = explode('.', $token);
 
@@ -741,10 +754,10 @@ public function scopes()
 
 }
 
-public function checkRules()
+public function checkRules($tokenId = null)
 {
 
-    $token = $this->getAccessToken();
+    $token = $this->getAccessToken($tokenId);
 
     $response = Http::withToken($token)
         ->get("https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messageRules");
@@ -766,9 +779,9 @@ public function checkRules()
 
 }
 
-public function fullMessage($id)
+public function fullMessage($id, $tokenId = null)
 {
-    $token = $this->getAccessToken();
+    $token = $this->getAccessToken($tokenId);
 
     $response = Http::timeout(20)
         ->withToken($token)
@@ -778,7 +791,7 @@ public function fullMessage($id)
 
     return $response->json();
 }
-public function leads($statusKey = null)
+public function leads($statusKey = null, $tokenId = null)
 {
     set_time_limit(300);
 
@@ -802,14 +815,14 @@ public function leads($statusKey = null)
 
     $folders = $this->fetchAll(
         "https://graph.microsoft.com/v1.0/me/contactFolders?\$top=200",
-        999
+        999, $tokenId
     );
 
     foreach($folders as $folder){
 
         $contacts = $this->fetchAll(
             "https://graph.microsoft.com/v1.0/me/contactFolders/{$folder['id']}/contacts?\$top=200",
-            5000
+            5000, $tokenId
         );
 
         foreach($contacts as $c){
@@ -834,7 +847,7 @@ public function leads($statusKey = null)
 
     $mailFolders = $this->fetchAll(
         "https://graph.microsoft.com/v1.0/me/mailFolders?\$top=200",
-        999
+        999, $tokenId
     );
 
     /*
@@ -850,7 +863,7 @@ public function leads($statusKey = null)
 
         $messages = $this->fetchAll(
             "https://graph.microsoft.com/v1.0/me/mailFolders/{$folder['id']}/messages?\$select=from,toRecipients,ccRecipients&\$top=200",
-            10000
+            10000, $tokenId
         );
 
         foreach($messages as $mail){
@@ -917,9 +930,9 @@ public function leads($statusKey = null)
         ->values()
         ->all();
 }
-public function fetchAll($url, $limit = 10000)
+public function fetchAll($url, $limit = 10000, $tokenId = null)
 {
-    $token = $this->getAccessToken();
+    $token = $this->getAccessToken($tokenId);
 
     $results = [];
     $loops = 0;
@@ -954,9 +967,9 @@ public function fetchAll($url, $limit = 10000)
 
     return array_slice($results, 0, $limit);
 }
-public function fetchBatch($url = null)
+public function fetchBatch($url = null, $tokenId = null)
 {
-    $token = $this->getAccessToken();
+    $token = $this->getAccessToken($tokenId);
 
     if (!$url) {
         $url = "https://graph.microsoft.com/v1.0/me/messages?\$select=from,toRecipients,ccRecipients&\$top=200";
@@ -1034,4 +1047,65 @@ public function fetchBatch($url = null)
     }
 
     throw new \Exception("Too many retries (429)");
-}}
+}
+
+public function createSubscription($tokenId)
+{
+    $token = Token::findOrFail($tokenId);
+
+    $accessToken = $this->getAccessToken($tokenId);
+
+    // 🔥 cek subscription lama
+    $existing = \App\Models\GraphSubscription::where('token_id', $tokenId)->first();
+
+    if ($existing) {
+        try {
+            $this->deleteSubscription($existing->subscription_id, $tokenId);
+        } catch (\Throwable $e) {
+            \Log::warning('Gagal delete subscription lama', [
+                'sub_id' => $existing->subscription_id,
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
+
+    $url = config('app.url') . '/webhook/graph/mail';
+
+    $response = Http::withToken($accessToken)
+        ->post("https://graph.microsoft.com/v1.0/subscriptions", [
+            "changeType" => "created",
+            "notificationUrl" => $url,
+            "resource" => "me/mailFolders('inbox')/messages",
+            "expirationDateTime" => now()->addMinutes(60)->toIso8601String(),
+            "clientState" => "token_".$tokenId
+        ]);
+
+    $data = $response->json();
+
+    if (!isset($data['id'])) {
+        throw new \Exception("Subscription gagal");
+    }
+
+    \App\Models\GraphSubscription::updateOrCreate(
+        ['token_id' => $tokenId],
+        [
+            'subscription_id' => $data['id'],
+            'resource' => $data['resource'],
+            'expires_at' => $data['expirationDateTime'],
+            'client_state' => $data['clientState']
+        ]
+    );
+
+    return $data;
+}
+
+public function deleteSubscription($subscriptionId, $tokenId)
+{
+    $accessToken = $this->getAccessToken($tokenId);
+
+    Http::withToken($accessToken)
+        ->delete("https://graph.microsoft.com/v1.0/subscriptions/{$subscriptionId}");
+}
+
+}
+

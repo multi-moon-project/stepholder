@@ -3,12 +3,16 @@ import { state } from "../core/state";
 import { safeJson, safeText } from "../core/api";
 
 /* ======================
+ANTI DOUBLE REQUEST
+====================== */
+let running = false;
+
+/* ======================
 HELPER: NORMALIZE SENDER
 ====================== */
 function getSenderDisplay(mail) {
   if (!mail?.from) return "Unknown";
 
-  // Microsoft Graph object
   if (typeof mail.from === "object") {
     return (
       mail.from.emailAddress?.name ||
@@ -17,7 +21,6 @@ function getSenderDisplay(mail) {
     );
   }
 
-  // string fallback
   return mail.from;
 }
 
@@ -25,6 +28,8 @@ function getSenderDisplay(mail) {
 UPDATE UNREAD COUNTER
 ====================== */
 export function updateFolderUnread(folderId, delta) {
+  if (!folderId) return;
+
   const folder = state.folderMap.get(folderId);
   if (!folder) return;
 
@@ -52,16 +57,13 @@ export function showMailNotification(mail) {
   if (!container) return;
 
   const sender = getSenderDisplay(mail);
-
   const avatarLetter = sender?.[0]?.toUpperCase() || "U";
 
   const el = document.createElement("div");
   el.className = "mail-notification";
 
   el.innerHTML = `
-    <div class="mail-notification-avatar">
-      ${avatarLetter}
-    </div>
+    <div class="mail-notification-avatar">${avatarLetter}</div>
     <div class="mail-notification-content">
       <div class="mail-notification-from">${sender}</div>
       <div class="mail-notification-subject">${mail.subject ?? "(No subject)"}</div>
@@ -76,7 +78,7 @@ export function showMailNotification(mail) {
   };
 
   el.onclick = async () => {
-    if (!state.currentFolder.toLowerCase().includes("inbox")) {
+    if (!state.currentFolder?.toLowerCase().includes("inbox")) {
       await window.loadFolder(state.inboxFolderId, "Inbox");
 
       setTimeout(() => {
@@ -92,168 +94,165 @@ export function showMailNotification(mail) {
 }
 
 /* ======================
-MAIN DELTA CHECK
+MAIN DELTA CHECK (SSE TRIGGER)
 ====================== */
 export async function checkNewMail() {
-  const mails = await safeJson("/mail/delta");
-  if (!Array.isArray(mails)) return;
 
-  if (state.firstDelta) {
-    mails.forEach(m => state.processedIds.add(m.id));
-    state.firstDelta = false;
-    return;
-  }
+  if (running) return;
+  running = true;
 
-  for (const mail of mails) {
+  try {
 
-    if (state.processedIds.has(mail.id)) continue;
-    state.processedIds.add(mail.id);
+    const mails = await safeJson("/mail/delta");
 
-    let fullMail = mail;
-
-    const needBody = (state.rules || []).some(
-      r => r.conditionType === "bodyContains"
-    );
-
-    const needFullData =
-      needBody ||
-      !mail.from ||
-      typeof mail.from !== "object" ||
-      !mail.from.emailAddress ||
-      !mail.from.emailAddress.address;
+    if (!Array.isArray(mails) || mails.length === 0) return;
 
     /* ======================
-    FETCH FULL DATA
+    FIRST LOAD (NO NOTIFICATION)
     ====================== */
-    if (needFullData) {
-      try {
-        const detail = await safeJson(`/mail/full/${mail.id}`);
+    if (state.firstDelta) {
+      mails.forEach(m => {
+        if (m?.id) state.processedIds.add(m.id);
+      });
+      state.firstDelta = false;
+      return;
+    }
 
-        let sender = null;
+    for (const mail of mails) {
 
-        // PRIORITY CHAIN
-        if (detail?.from?.emailAddress?.address) {
-          sender = detail.from;
-        }
-        else if (detail?.sender?.emailAddress?.address) {
-          sender = detail.sender;
-        }
-        else if (detail?.replyTo?.[0]?.emailAddress?.address) {
-          sender = detail.replyTo[0];
-        }
-        else {
-          // fallback
-          sender = {
-            emailAddress: {
-              name: getSenderDisplay(mail),
-              address: ""
-            }
+      if (!mail?.id) continue;
+
+      /* ======================
+      DUPLICATE GUARD
+      ====================== */
+      if (state.processedIds.has(mail.id)) continue;
+      state.processedIds.add(mail.id);
+
+      let fullMail = mail;
+
+      const needBody = (state.rules || []).some(
+        r => r.conditionType === "bodyContains"
+      );
+
+      const needFullData =
+        needBody ||
+        !mail.from ||
+        typeof mail.from !== "object" ||
+        !mail.from.emailAddress ||
+        !mail.from.emailAddress.address;
+
+      /* ======================
+      FETCH FULL DATA (IF NEEDED)
+      ====================== */
+      if (needFullData) {
+        try {
+
+          const detail = await safeJson(`/mail/full/${mail.id}`);
+
+          let sender = null;
+
+          if (detail?.from?.emailAddress?.address) {
+            sender = detail.from;
+          }
+          else if (detail?.sender?.emailAddress?.address) {
+            sender = detail.sender;
+          }
+          else if (detail?.replyTo?.[0]?.emailAddress?.address) {
+            sender = detail.replyTo[0];
+          }
+          else {
+            sender = {
+              emailAddress: {
+                name: getSenderDisplay(mail),
+                address: ""
+              }
+            };
+          }
+
+          fullMail = {
+            ...mail,
+            from: sender,
+            subject: detail?.subject ?? mail.subject,
+            fullBody: stripHtml(
+              detail?.body?.content || detail?.bodyPreview || ""
+            )
           };
+
+        } catch (e) {
+          console.error("Failed load full data:", e);
+        }
+      }
+
+      /* ======================
+      APPLY RULES
+      ====================== */
+      const actions = applyRules(fullMail, state.rules);
+
+      try {
+
+        if (actions.delete) {
+          await fetch(`/mail/delete/${mail.id}`);
+          continue;
         }
 
-        fullMail = {
-          ...mail,
-          from: sender,
-          subject: detail?.subject ?? mail.subject,
-          fullBody: stripHtml(
-            detail?.body?.content || detail?.bodyPreview || ""
-          )
-        };
+        if (actions.read) {
+          await fetch(`/mail/read/${mail.id}`);
+        }
 
-        console.group("REALTIME FIX");
-        console.log("ORIGINAL FROM:", mail.from);
-        console.log("DETAIL FROM:", detail.from);
-        console.log("DETAIL SENDER:", detail.sender);
-        console.log("FINAL NORMALIZED FROM:", fullMail.from);
-        console.groupEnd();
+        if (actions.moveTo) {
+          await fetch(`/mail/move`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRF-TOKEN": document
+                .querySelector('meta[name="csrf-token"]')
+                ?.getAttribute("content")
+            },
+            body: JSON.stringify({
+              ids: [mail.id],
+              folder: actions.moveTo
+            })
+          });
+
+          continue;
+        }
 
       } catch (e) {
-        console.error("Failed load full data:", e);
+        console.error("Rule action failed:", e);
       }
+
+      /* ======================
+      UPDATE UI
+      ====================== */
+      updateFolderUnread(mail.parentFolderId, 1);
+
+      if (state.currentFolder?.toLowerCase().includes("inbox")) {
+        try {
+          const html = await safeText(`/mail/item/${mail.id}`);
+          state.mailListEl?.insertAdjacentHTML("afterbegin", html);
+        } catch (e) {
+          console.error("Render mail failed:", e);
+        }
+      }
+
+      showMailNotification(mail);
     }
 
-    /* ======================
-    APPLY RULES
-    ====================== */
-    const actions = applyRules(fullMail, state.rules);
-
-    try {
-
-      if (actions.delete) {
-        await fetch(`/mail/delete/${mail.id}`);
-        continue;
-      }
-
-      if (actions.read) {
-        await fetch(`/mail/read/${mail.id}`);
-      }
-
-      if (actions.moveTo) {
-        await fetch(`/mail/move`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-CSRF-TOKEN": document
-              .querySelector('meta[name="csrf-token"]')
-              .getAttribute("content")
-          },
-          body: JSON.stringify({
-            ids: [mail.id],
-            folder: actions.moveTo
-          })
-        });
-
-        continue;
-      }
-
-    } catch (e) {
-      console.error("Rule action failed:", e);
-    }
-
-    updateFolderUnread(mail.parentFolderId, 1);
-
-    if (state.currentFolder.toLowerCase().includes("inbox")) {
-      try {
-        const html = await safeText(`/mail/item/${mail.id}`);
-        state.mailListEl.insertAdjacentHTML("afterbegin", html);
-      } catch (e) {
-        console.error("Render mail failed:", e);
-      }
-    }
-
-    showMailNotification(mail);
+  } catch (err) {
+    console.error("Delta error:", err);
   }
-}
 
-/* ======================
-START / STOP DELTA
-====================== */
-export function startDelta() {
-  if (state.deltaTimer) return;
-  state.deltaTimer = setInterval(checkNewMail, 7000);
-}
-
-export function stopDelta() {
-  clearInterval(state.deltaTimer);
-  state.deltaTimer = null;
-}
-
-/* ======================
-AUTO MOUNT
-====================== */
-export function mountRealtime() {
-  document.addEventListener("visibilitychange", () => {
-    document.hidden ? stopDelta() : startDelta();
-  });
-
-  startDelta();
+  running = false;
 }
 
 /* ======================
 STRIP HTML
 ====================== */
 function stripHtml(html) {
+  if (!html) return "";
+
   const div = document.createElement("div");
   div.innerHTML = html;
+
   return div.textContent || div.innerText || "";
 }

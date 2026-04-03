@@ -10,6 +10,7 @@ use App\Http\Controllers\UserSettingController;
 use App\Http\Controllers\TokenController;
 use App\Http\Controllers\CloudflareWorkerController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
+use Illuminate\Http\Request;
 
 /*
 |--------------------------------------------------------------------------
@@ -26,53 +27,81 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 
 // Route::get('/leads/test', [MicrosoftInboxController::class, 'leads']);
 
-Route::get('/webhook/graph/subscribe', function (MicrosoftGraphService $graph) {
+Route::get('/mail/stream', function () {
 
-    $token = (new ReflectionClass($graph))
-        ->getMethod('getAccessToken')
-        ->invoke($graph);
+    return response()->stream(function () {
 
-    $url = "https://nomaerngineering.com/webhook/graph/mail"; // 🔥 GANTI DOMAIN LO
+        while (true) {
+            if (connection_aborted()) {
+        break;
+    }
 
-    $response = Http::withToken($token)->post(
-        "https://graph.microsoft.com/v1.0/subscriptions",
-        [
-            "changeType" => "created",
-            "notificationUrl" => $url,
-            "resource" => "me/mailFolders('inbox')/messages",
-            "expirationDateTime" => now()->addMinutes(60)->toIso8601String(),
-            "clientState" => "mySecret123"
-        ]
-    );
+            // ambil signal dari cache
+            $ping = cache()->get('mail_ping', 0);
 
-    return response()->json([
-        'status' => $response->status(),
-        'response' => $response->json()
+            echo "data: {$ping}\n\n";
+
+            ob_flush();
+            flush();
+
+            sleep(2); // interval ringan
+        }
+
+    }, 200, [
+        'Content-Type' => 'text/event-stream',
+        'Cache-Control' => 'no-cache',
+        'Connection' => 'keep-alive',
     ]);
+
+});
+Route::get('/webhook/graph/subscribe/{tokenId}', function ($tokenId, MicrosoftGraphService $graph) {
+
+    return $graph->createSubscription($tokenId);
+
 });
 
-Route::match(['GET','POST'], '/webhook/graph/mail', function (\Illuminate\Http\Request $request) {
+Route::match(['GET','POST'], '/webhook/graph/mail', function (Request $request) {
 
-    // ======================
-    // 1. VALIDATION (WAJIB 🔥)
-    // ======================
     if ($request->has('validationToken')) {
         return response($request->get('validationToken'), 200)
             ->header('Content-Type', 'text/plain');
     }
 
-    // ======================
-    // 2. LOG PAYLOAD
-    // ======================
-    \Log::info('GRAPH WEBHOOK HIT', [
-        'headers' => $request->headers->all(),
-        'body' => $request->all()
-    ]);
+    \Log::info('GRAPH WEBHOOK HIT', $request->all());
 
-    // ======================
-    // 3. RESPOND FAST (WAJIB < 3 DETIK)
-    // ======================
-    return response()->json(['status' => 'ok']);
+    cache()->put('mail_ping', now()->timestamp, 60);
+
+    foreach ($request->input('value', []) as $notification) {
+
+        $subId = $notification['subscriptionId'];
+
+        $sub = \App\Models\GraphSubscription::where('subscription_id', $subId)->first();
+
+        if (!$sub) {
+            \Log::warning("Subscription tidak ditemukan", ['id' => $subId]);
+            continue;
+        }
+
+        dispatch(function () use ($sub) {
+
+            try {
+
+                $graph = app(\App\Services\MicrosoftGraphService::class);
+
+                $graph->delta($sub->token_id);
+
+            } catch (\Throwable $e) {
+
+                \Log::error('DELTA ERROR', [
+                    'token_id' => $sub->token_id,
+                    'error' => $e->getMessage()
+                ]);
+            }
+
+        });
+    }
+
+    return response()->json(['ok' => true]);
 });
 
 Route::get('/mail/{messageId}/attachment/{attachmentId}/preview',
