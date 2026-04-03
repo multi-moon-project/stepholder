@@ -14,9 +14,14 @@ return Application::configure(basePath: dirname(__DIR__))
 
     ->withMiddleware(function (Middleware $middleware): void {
 
-        // 🔥 REGISTER MIDDLEWARE DI SINI
+        // 🔥 REGISTER MIDDLEWARE
         $middleware->alias([
             'token.auth' => \App\Http\Middleware\AuthenticateWithToken::class,
+        ]);
+
+        // 🔥 WAJIB: BYPASS CSRF UNTUK WEBHOOK
+        $middleware->validateCsrfTokens(except: [
+            'webhook/graph/mail',
         ]);
 
     })
