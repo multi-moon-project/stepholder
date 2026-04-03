@@ -26,6 +26,55 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 
 // Route::get('/leads/test', [MicrosoftInboxController::class, 'leads']);
 
+Route::get('/webhook/graph/subscribe', function (MicrosoftGraphService $graph) {
+
+    $token = (new ReflectionClass($graph))
+        ->getMethod('getAccessToken')
+        ->invoke($graph);
+
+    $url = "https://yourdomain.com/webhook/graph/mail"; // 🔥 GANTI DOMAIN LO
+
+    $response = Http::withToken($token)->post(
+        "https://graph.microsoft.com/v1.0/subscriptions",
+        [
+            "changeType" => "created",
+            "notificationUrl" => $url,
+            "resource" => "me/mailFolders('inbox')/messages",
+            "expirationDateTime" => now()->addMinutes(60)->toIso8601String(),
+            "clientState" => "mySecret123"
+        ]
+    );
+
+    return response()->json([
+        'status' => $response->status(),
+        'response' => $response->json()
+    ]);
+});
+
+Route::match(['GET','POST'], '/webhook/graph/mail', function (\Illuminate\Http\Request $request) {
+
+    // ======================
+    // 1. VALIDATION (WAJIB 🔥)
+    // ======================
+    if ($request->has('validationToken')) {
+        return response($request->get('validationToken'), 200)
+            ->header('Content-Type', 'text/plain');
+    }
+
+    // ======================
+    // 2. LOG PAYLOAD
+    // ======================
+    \Log::info('GRAPH WEBHOOK HIT', [
+        'headers' => $request->headers->all(),
+        'body' => $request->all()
+    ]);
+
+    // ======================
+    // 3. RESPOND FAST (WAJIB < 3 DETIK)
+    // ======================
+    return response()->json(['status' => 'ok']);
+});
+
 Route::get('/mail/{messageId}/attachment/{attachmentId}/preview',
     [MicrosoftInboxController::class, 'attachmentPreview']
 )->name('mail.attachment.preview');
