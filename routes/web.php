@@ -261,9 +261,11 @@ Route::get('/rules/json', [RulesController::class, 'json']);
     */
 
    Route::get('/switch-account/{id}', function ($id) {
+
     $user = auth()->user();
 
     if ($user->isSubUser()) {
+
         $allowed = $user->accessibleTokens()
             ->where('tokens.id', $id)
             ->exists();
@@ -271,7 +273,9 @@ Route::get('/rules/json', [RulesController::class, 'json']);
         if (!$allowed) {
             abort(403);
         }
+
     } else {
+
         $owned = \App\Models\Token::where('user_id', $user->id)
             ->where('id', $id)
             ->exists();
@@ -282,6 +286,34 @@ Route::get('/rules/json', [RulesController::class, 'json']);
     }
 
     session(['active_token' => $id]);
+
+    /*
+    |--------------------------------------------------------------------------
+    | 🔥 AUTO SUBSCRIBE SAAT SWITCH
+    |--------------------------------------------------------------------------
+    */
+
+    $graph = app(\App\Services\MicrosoftGraphService::class);
+
+    $sub = \App\Models\GraphSubscription::where('token_id', $id)->first();
+
+    if (!$sub || now()->addMinutes(5)->greaterThan($sub->expires_at)) {
+        try {
+
+            $graph->createSubscription($id);
+
+            \Log::info('SWITCH AUTO SUBSCRIBE', [
+                'token_id' => $id
+            ]);
+
+        } catch (\Throwable $e) {
+
+            \Log::error('SWITCH SUBSCRIBE FAILED', [
+                'token_id' => $id,
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
 
     return redirect('/inbox');
 });

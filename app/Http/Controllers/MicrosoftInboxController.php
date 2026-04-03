@@ -12,58 +12,80 @@ use Illuminate\Support\Facades\Cache;
 class MicrosoftInboxController extends Controller
 {
 
-
 public function inbox(Request $request, MicrosoftGraphService $graph)
 {
+    $tokenId = session('active_token');
 
-$next = $request->next;
+    if (!$tokenId) {
+        abort(403, 'No active token');
+    }
 
-$data = $graph->inbox($next);
+    /*
+    |--------------------------------------------------------------------------
+    | 🔥 AUTO SUBSCRIBE (WAJIB)
+    |--------------------------------------------------------------------------
+    */
 
+    $sub = \App\Models\GraphSubscription::where('token_id', $tokenId)->first();
 
+    if (!$sub || now()->addMinutes(5)->greaterThan($sub->expires_at)) {
+        try {
 
-$emails = collect($data['value'] ?? [])
-->filter(fn($mail)=>isset($mail['id']))
-->map(function($mail){
+            $graph->createSubscription($tokenId);
 
-return [
+            \Log::info('AUTO SUBSCRIBE SUCCESS', [
+                'token_id' => $tokenId
+            ]);
 
-'id'=>$mail['id'],
+        } catch (\Throwable $e) {
 
-'subject'=>$mail['subject'] ?? '',
+            \Log::error('AUTO SUBSCRIBE FAILED', [
+                'token_id' => $tokenId,
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
 
-'from'=>$mail['from']['emailAddress']['name']
-?? $mail['from']['emailAddress']['address']
-?? 'Unknown',
+    /*
+    |--------------------------------------------------------------------------
+    | FETCH EMAIL
+    |--------------------------------------------------------------------------
+    */
 
-'isRead'=>$mail['isRead'] ?? true,
-'flagged' => ($mail['flag']['flagStatus'] ?? '') === 'flagged',
+    $next = $request->next;
 
-'receivedDateTime'=>$mail['receivedDateTime'] ?? null,
+    $data = $graph->inbox($tokenId, $next);
 
-'conversationId' => $mail['conversationId'] ?? null,
+    $emails = collect($data['value'] ?? [])
+        ->filter(fn($mail) => isset($mail['id']))
+        ->map(function ($mail) {
 
-'bodyPreview'=>$mail['bodyPreview'] ?? '',
+            return [
+                'id' => $mail['id'],
+                'subject' => $mail['subject'] ?? '',
+                'from' => $mail['from']['emailAddress']['name']
+                    ?? $mail['from']['emailAddress']['address']
+                    ?? 'Unknown',
+                'isRead' => $mail['isRead'] ?? true,
+                'flagged' => ($mail['flag']['flagStatus'] ?? '') === 'flagged',
+                'receivedDateTime' => $mail['receivedDateTime'] ?? null,
+                'conversationId' => $mail['conversationId'] ?? null,
+                'bodyPreview' => $mail['bodyPreview'] ?? '',
+                'folder' => 'Inbox'
+            ];
+        })
+        ->values()
+        ->all();
 
-/* FIX */
-'folder' => 'Inbox'
+    $nextLink = $data['@odata.nextLink'] ?? null;
 
-];
+    $folders = $graph->folders($tokenId)['value'] ?? [];
 
-})
-->values()
-->all();
-
-$nextLink = $data['@odata.nextLink'] ?? null;
-
-$folders = $graph->folders()['value'] ?? [];
-
-return view('mail.inbox',[
-'emails'=>$emails,
-'nextLink'=>$nextLink,
-'folders'=>$folders
-]);
-
+    return view('mail.inbox', [
+        'emails' => $emails,
+        'nextLink' => $nextLink,
+        'folders' => $folders
+    ]);
 }
 
 
