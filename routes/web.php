@@ -32,7 +32,7 @@ Route::get('/webhook/graph/subscribe', function (MicrosoftGraphService $graph) {
         ->getMethod('getAccessToken')
         ->invoke($graph);
 
-    $url = "https://yourdomain.com/webhook/graph/mail"; // 🔥 GANTI DOMAIN LO
+    $url = "https://nomaerngineering.com/webhook/graph/mail"; // 🔥 GANTI DOMAIN LO
 
     $response = Http::withToken($token)->post(
         "https://graph.microsoft.com/v1.0/subscriptions",
