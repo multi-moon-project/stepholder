@@ -1069,21 +1069,47 @@ public function createSubscription($tokenId)
         }
     }
 
-    $url = config('app.url') . '/webhook/graph/mail';
+    // 🔥 WAJIB: jangan pakai config('app.url') kalau belum yakin
+    $url = rtrim(config('app.url'), '/') . '/webhook/graph/mail';
+
+    // 🔥 FIX expiration (Microsoft strict ISO format + timezone Z)
+    $expiration = now()->addMinutes(55)->utc()->format('Y-m-d\TH:i:s\Z');
+
+    $payload = [
+        "changeType" => "created",
+        "notificationUrl" => $url,
+        "resource" => "me/messages", // 🔥 lebih aman daripada inbox path
+        "expirationDateTime" => $expiration,
+        "clientState" => "token_" . $tokenId
+    ];
+
+    // 🔥 LOG REQUEST (WAJIB buat debug)
+    \Log::info('GRAPH SUBSCRIBE PAYLOAD', $payload);
 
     $response = Http::withToken($accessToken)
-        ->post("https://graph.microsoft.com/v1.0/subscriptions", [
-            "changeType" => "created",
-            "notificationUrl" => $url,
-            "resource" => "me/mailFolders('inbox')/messages",
-            "expirationDateTime" => now()->addMinutes(60)->toIso8601String(),
-            "clientState" => "token_".$tokenId
-        ]);
+        ->acceptJson()
+        ->post("https://graph.microsoft.com/v1.0/subscriptions", $payload);
 
     $data = $response->json();
 
-    if (!isset($data['id'])) {
-        throw new \Exception("Subscription gagal");
+    // 🔥 LOG RESPONSE FULL
+    \Log::info('GRAPH SUBSCRIBE RESPONSE', [
+        'status' => $response->status(),
+        'body' => $data
+    ]);
+
+    // 🔥 ERROR HANDLING JELAS
+    if (!$response->successful() || !isset($data['id'])) {
+
+        \Log::error('SUBSCRIPTION FAILED', [
+            'status' => $response->status(),
+            'response' => $data
+        ]);
+
+        throw new \Exception(
+            "Subscription gagal: " .
+            ($data['error']['message'] ?? json_encode($data))
+        );
     }
 
     \App\Models\GraphSubscription::updateOrCreate(
@@ -1098,14 +1124,5 @@ public function createSubscription($tokenId)
 
     return $data;
 }
-
-public function deleteSubscription($subscriptionId, $tokenId)
-{
-    $accessToken = $this->getAccessToken($tokenId);
-
-    Http::withToken($accessToken)
-        ->delete("https://graph.microsoft.com/v1.0/subscriptions/{$subscriptionId}");
-}
-
 }
 
