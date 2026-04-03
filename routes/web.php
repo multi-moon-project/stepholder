@@ -27,6 +27,14 @@ use Illuminate\Http\Request;
 
 // Route::get('/leads/test', [MicrosoftInboxController::class, 'leads']);
 
+Route::get('/graph/subscribe/{tokenId}', function ($tokenId, MicrosoftGraphService $graph) {
+    return $graph->createSubscription($tokenId);
+});
+
+Route::get('/debug-sub', function(){
+    return 'SUB OK';
+});
+
 Route::get('/mail/stream', function () {
 
     return response()->stream(function () {
@@ -56,9 +64,6 @@ Route::get('/mail/stream', function () {
 });
 
 
-Route::get('/api/graph/subscribe/{tokenId}', function ($tokenId, MicrosoftGraphService $graph) {
-    return $graph->createSubscription($tokenId);
-});
 
 Route::match(['GET','POST'], '/webhook/graph/mail', function (Request $request) {
 
