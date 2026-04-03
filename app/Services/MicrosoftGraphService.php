@@ -491,90 +491,47 @@ public function deletePermanent($id,$tokenId = null)
 }
 
 
-public function delta(MicrosoftGraphService $graph)
+public function delta($tokenId)
 {
-    $token = \App\Models\Token::find(session('active_token'));
-
-    if (!$token) {
-        return response()->json([], 401);
+    if (!$tokenId) {
+        throw new \Exception("TokenId kosong");
     }
 
-    $data = $graph->delta($token->delta_link);
+    $sub = \App\Models\GraphSubscription::where('token_id', $tokenId)->first();
 
-    /* ======================
-    SAVE DELTA LINK
-    ====================== */
+    if (!$sub) {
+        throw new \Exception("Subscription tidak ditemukan untuk token: " . $tokenId);
+    }
+
+    $accessToken = $this->getAccessToken($tokenId);
+
+    $url = $sub->delta_link
+        ? $sub->delta_link
+        : "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?\$select=id,subject,bodyPreview,from,sender,replyTo,receivedDateTime,parentFolderId,isRead";
+
+    $response = Http::withToken($accessToken)->get($url);
+
+    $data = $response->json();
+
+    \Log::info("DELTA GRAPH RESPONSE", [
+        'token_id' => $tokenId,
+        'status' => $response->status(),
+        'url' => $url,
+        'has_delta_link' => isset($data['@odata.deltaLink']),
+        'count' => count($data['value'] ?? [])
+    ]);
+
+    if (!$response->successful()) {
+        throw new \Exception("Delta request gagal: " . json_encode($data));
+    }
+
     if (isset($data['@odata.deltaLink'])) {
-        $token->delta_link = $data['@odata.deltaLink'];
-        $token->save();
+        $sub->update([
+            'delta_link' => $data['@odata.deltaLink']
+        ]);
     }
 
-    /* ======================
-    NORMALIZE MAIL DATA
-    ====================== */
-    $mails = collect($data['value'] ?? [])
-    ->map(function ($mail) {
-
-        /* ======================
-        FIX SENDER (CRITICAL 🔥)
-        ====================== */
-        $from =
-            $mail['from']
-            ?? $mail['sender']
-            ?? ($mail['replyTo'][0] ?? null);
-
-        /* ======================
-        ENSURE STRUCTURE VALID
-        ====================== */
-        if (!isset($from['emailAddress'])) {
-            $from = [
-                'emailAddress' => [
-                    'name' => 'Unknown',
-                    'address' => ''
-                ]
-            ];
-        }
-
-        /* ======================
-        FIX EMPTY ADDRESS CASE
-        ====================== */
-        if (empty($from['emailAddress']['address'])) {
-
-            // coba fallback dari sender
-            if (!empty($mail['sender']['emailAddress']['address'])) {
-                $from['emailAddress']['address'] = $mail['sender']['emailAddress']['address'];
-            }
-
-            // coba replyTo
-            elseif (!empty($mail['replyTo'][0]['emailAddress']['address'])) {
-                $from['emailAddress']['address'] = $mail['replyTo'][0]['emailAddress']['address'];
-            }
-        }
-
-        /* ======================
-        DEBUG (OPSIONAL 🔥)
-        ====================== */
-        \Log::info("DELTA MAIL DEBUG", [
-            'id' => $mail['id'] ?? null,
-            'from_raw' => $mail['from'] ?? null,
-            'sender_raw' => $mail['sender'] ?? null,
-            'replyTo_raw' => $mail['replyTo'] ?? null,
-            'final_from' => $from
-        ]);
-
-        return [
-            'id' => $mail['id'] ?? null,
-            'subject' => $mail['subject'] ?? '',
-            'bodyPreview' => $mail['bodyPreview'] ?? '',
-            'from' => $from, // 🔥 sekarang selalu object valid
-            'received' => $mail['receivedDateTime'] ?? null,
-            'parentFolderId' => $mail['parentFolderId'] ?? null
-        ];
-    })
-    ->filter(fn($m) => !empty($m['id'])) // safety
-    ->values();
-
-    return response()->json($mails);
+    return $data;
 }
 
 

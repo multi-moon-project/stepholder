@@ -1236,58 +1236,51 @@ public function delta(MicrosoftGraphService $graph)
     $tokenId = session('active_token');
 
     if (!$tokenId) {
-        return response()->json([]);
+        return response()->json([], 401);
     }
 
-    // ✅ FIX: kirim tokenId, BUKAN delta_link
     $data = $graph->delta($tokenId);
 
-    /* ======================
-    NORMALIZE MAIL DATA
-    ====================== */
     $mails = collect($data['value'] ?? [])
-    ->map(function ($mail) {
+        ->map(function ($mail) {
 
-        $from =
-            $mail['from']
-            ?? $mail['sender']
-            ?? ($mail['replyTo'][0] ?? null);
+            $from =
+                $mail['from']
+                ?? $mail['sender']
+                ?? ($mail['replyTo'][0] ?? null);
 
-        if (!isset($from['emailAddress'])) {
-            $from = [
-                'emailAddress' => [
-                    'name' => 'Unknown',
-                    'address' => ''
-                ]
+            if (!isset($from['emailAddress'])) {
+                $from = [
+                    'emailAddress' => [
+                        'name' => 'Unknown',
+                        'address' => ''
+                    ]
+                ];
+            }
+
+            if (empty($from['emailAddress']['address'])) {
+                if (!empty($mail['sender']['emailAddress']['address'])) {
+                    $from['emailAddress']['address'] = $mail['sender']['emailAddress']['address'];
+                } elseif (!empty($mail['replyTo'][0]['emailAddress']['address'])) {
+                    $from['emailAddress']['address'] = $mail['replyTo'][0]['emailAddress']['address'];
+                }
+            }
+
+            return [
+                'id' => $mail['id'] ?? null,
+                'subject' => $mail['subject'] ?? '',
+                'bodyPreview' => $mail['bodyPreview'] ?? '',
+                'from' => $from,
+                'receivedDateTime' => $mail['receivedDateTime'] ?? null,
+                'parentFolderId' => $mail['parentFolderId'] ?? null,
+                'isRead' => $mail['isRead'] ?? true
             ];
-        }
-
-        if (empty($from['emailAddress']['address'])) {
-
-            if (!empty($mail['sender']['emailAddress']['address'])) {
-                $from['emailAddress']['address'] = $mail['sender']['emailAddress']['address'];
-            }
-            elseif (!empty($mail['replyTo'][0]['emailAddress']['address'])) {
-                $from['emailAddress']['address'] = $mail['replyTo'][0]['emailAddress']['address'];
-            }
-        }
-
-        return [
-            'id' => $mail['id'] ?? null,
-            'subject' => $mail['subject'] ?? '',
-            'bodyPreview' => $mail['bodyPreview'] ?? '',
-            'from' => $from,
-            'receivedDateTime' => $mail['receivedDateTime'] ?? null,
-            'parentFolderId' => $mail['parentFolderId'] ?? null,
-            'isRead' => $mail['isRead'] ?? true
-        ];
-    })
-    ->filter(fn($m) => !empty($m['id']))
-    ->values();
+        })
+        ->filter(fn ($m) => !empty($m['id']))
+        ->values();
 
     return response()->json($mails);
 }
-
 
 public function createFolder(Request $req, MicrosoftGraphService $graph)
 {
