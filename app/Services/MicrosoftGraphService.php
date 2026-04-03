@@ -1055,7 +1055,6 @@ public function createSubscription($tokenId)
 
     $accessToken = $this->getAccessToken($tokenId);
 
-    // 🔥 cek subscription lama
     $existing = \App\Models\GraphSubscription::where('token_id', $tokenId)->first();
 
     if ($existing) {
@@ -1069,56 +1068,44 @@ public function createSubscription($tokenId)
         }
     }
 
-    // 🔥 WAJIB: jangan pakai config('app.url') kalau belum yakin
-    $url = rtrim(config('app.url'), '/') . '/webhook/graph/mail';
+    $baseUrl = rtrim(config('app.url'), '/');
 
-    // 🔥 FIX expiration (Microsoft strict ISO format + timezone Z)
-    $expiration = now()->addMinutes(55)->utc()->format('Y-m-d\TH:i:s\Z');
+    // paksa https
+    if (str_starts_with($baseUrl, 'http://')) {
+        $baseUrl = preg_replace('/^http:\/\//i', 'https://', $baseUrl);
+    }
 
-    $payload = [
-        "changeType" => "created",
-        "notificationUrl" => $url,
-        "resource" => "me/messages", // 🔥 lebih aman daripada inbox path
-        "expirationDateTime" => $expiration,
-        "clientState" => "token_" . $tokenId
-    ];
-
-    // 🔥 LOG REQUEST (WAJIB buat debug)
-    \Log::info('GRAPH SUBSCRIBE PAYLOAD', $payload);
+    $url = $baseUrl . '/webhook/graph/mail';
 
     $response = Http::withToken($accessToken)
-        ->acceptJson()
-        ->post("https://graph.microsoft.com/v1.0/subscriptions", $payload);
+        ->post("https://graph.microsoft.com/v1.0/subscriptions", [
+            "changeType" => "created",
+            "notificationUrl" => $url,
+            "resource" => "me/mailFolders('inbox')/messages",
+            "expirationDateTime" => now()->addMinutes(60)->toIso8601String(),
+            "clientState" => "token_" . $tokenId
+        ]);
 
     $data = $response->json();
 
-    // 🔥 LOG RESPONSE FULL
     \Log::info('GRAPH SUBSCRIBE RESPONSE', [
+        'token_id' => $tokenId,
+        'notification_url' => $url,
         'status' => $response->status(),
         'body' => $data
     ]);
 
-    // 🔥 ERROR HANDLING JELAS
-    if (!$response->successful() || !isset($data['id'])) {
-
-        \Log::error('SUBSCRIPTION FAILED', [
-            'status' => $response->status(),
-            'response' => $data
-        ]);
-
-        throw new \Exception(
-            "Subscription gagal: " .
-            ($data['error']['message'] ?? json_encode($data))
-        );
+    if (!isset($data['id'])) {
+        throw new \Exception('Subscription gagal: ' . ($data['error']['message'] ?? 'unknown error'));
     }
 
     \App\Models\GraphSubscription::updateOrCreate(
         ['token_id' => $tokenId],
         [
             'subscription_id' => $data['id'],
-            'resource' => $data['resource'],
-            'expires_at' => $data['expirationDateTime'],
-            'client_state' => $data['clientState']
+            'resource' => $data['resource'] ?? null,
+            'expires_at' => \Carbon\Carbon::parse($data['expirationDateTime'])->format('Y-m-d H:i:s'),
+            'client_state' => $data['clientState'] ?? null
         ]
     );
 
