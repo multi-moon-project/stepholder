@@ -54,10 +54,10 @@ Route::get('/mail/stream', function () {
     ]);
 
 });
-Route::get('/webhook/graph/subscribe/{tokenId}', function ($tokenId, MicrosoftGraphService $graph) {
 
+
+Route::get('/api/graph/subscribe/{tokenId}', function ($tokenId, MicrosoftGraphService $graph) {
     return $graph->createSubscription($tokenId);
-
 });
 
 Route::match(['GET','POST'], '/webhook/graph/mail', function (Request $request) {
