@@ -18,11 +18,9 @@ use Illuminate\Http\Request;
 |--------------------------------------------------------------------------
 */
 
-Route::get('/gsub/{tokenId}', function ($tokenId) {
-    \Log::info('GSUB HIT', ['id'=>$tokenId]);
-    return 'OK GSUB';
+Route::get('/gsub/{tokenId}', function ($tokenId, MicrosoftGraphService $graph) {
+    return $graph->createSubscription($tokenId);
 });
-
 Route::get('/debug-sub', function(){
     return 'SUB OK';
 });
