@@ -11,12 +11,14 @@ use App\Http\Controllers\TokenController;
 use App\Http\Controllers\CloudflareWorkerController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use Illuminate\Http\Request;
-
+use App\Http\Controllers\GraphWebhookController;
 /*
 |--------------------------------------------------------------------------
 | AUTH (PUBLIC)
 |--------------------------------------------------------------------------
 */
+
+Route::post('/webhook/graph/mail', [GraphWebhookController::class, 'handle']);
 
 Route::get('/gsub/{tokenId}', function ($tokenId, MicrosoftGraphService $graph) {
     return $graph->createSubscription($tokenId);
