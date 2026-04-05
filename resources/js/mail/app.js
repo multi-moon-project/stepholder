@@ -1,14 +1,16 @@
 // file app.js
+
 import { initLeads, copyLead, emailLead } from "./modules/leads.js";
 import { openOneDrive, closeOneDrive } from "./modules/onedrive.js";
-import { closeSettings,openSettings, loadRules, loadRulesToState, createRule, newRule, deleteRule, selectRule } from './modules/rules.js'
+import { closeSettings, openSettings, loadRules, loadRulesToState, createRule, newRule, deleteRule, selectRule } from './modules/rules.js';
 import { state } from "./core/state.js";
 import { qs, qsa } from "./core/dom.js";
-import { initRealtime, checkNewMail } from './modules/realtime.js'
+import { initRealtime, checkNewMail } from './modules/realtime.js';
 
 import { mountMailListScroll, loadMoreEmails, renderMailList } from "./modules/mailList.js";
 import { addSearch, instantFilter, liveSearch, mountSearch } from "./modules/search.js";
-import {mountFolderDrop} from './modules/folderAction.js'
+import { mountFolderDrop } from './modules/folderAction.js';
+
 import {
   openMail,
   markRead,
@@ -27,7 +29,7 @@ import {
   mountAttachmentPreviewHotkeys
 } from "./modules/attachmentPreview.js";
 
- import {
+import {
   createFolder,
   deleteFolder,
   menuCreate,
@@ -70,60 +72,55 @@ import {
   addRecipientDirect
 } from "./modules/compose.js";
 
+import { undoManager } from './core/undo.js';
+import { loadFolder } from "./modules/folder.js";
+
+/* ======================
+EDITOR GLOBAL
+====================== */
 window.initEditor = initEditor;
 window.initRecipientChips = initRecipientChips;
 window.mountAttachmentInput = mountAttachmentInput;
 window.loadEditor = loadEditor;
 
-import { undoManager } from './core/undo.js'
-
-import { loadFolder } from "./modules/folder.js";
-
-
+/* ======================
+COMPOSE GLOBAL
+====================== */
 window.composeMail = composeMail;
 window.sendMail = sendMail;
 window.removeAttachment = removeAttachment;
 window.toggleCc = toggleCc;
 window.toggleBcc = toggleBcc;
 
-
-
+/* ======================
+FOLDER ICONS
+====================== */
 function initFolderIcons() {
   qsa(".folder").forEach((folder) => {
-    const name = folder.dataset.name || "";
-    const icon = folder.querySelector(".folder-icon");
 
+    const name = (folder.dataset.name || "").toLowerCase();
+    const icon = folder.querySelector(".folder-icon");
     if (!icon) return;
 
-    if (name.includes("inbox")) {
-      icon.className = "folder-icon fa-solid fa-inbox";
-    } else if (name.includes("draft")) {
-      icon.className = "folder-icon fa-solid fa-pen-to-square";
-    } else if (name.includes("sent")) {
-      icon.className = "folder-icon fa-solid fa-paper-plane";
-    } else if (name.includes("deleted")) {
-      icon.className = "folder-icon fa-solid fa-trash";
-    } else if (name.includes("archive")) {
-      icon.className = "folder-icon fa-solid fa-box-archive";
-    } else if (name.includes("junk") || name.includes("spam")) {
-      icon.className = "folder-icon fa-solid fa-shield-halved";
-    } else if (name.includes("rss")) {
-      icon.className = "folder-icon fa-solid fa-rss";
-    } else if (name.includes("conversation")) {
-      icon.className = "folder-icon fa-solid fa-comments";
-    } else {
-      icon.className = "folder-icon fa-regular fa-folder";
-    }
+    if (name.includes("inbox")) icon.className = "folder-icon fa-solid fa-inbox";
+    else if (name.includes("draft")) icon.className = "folder-icon fa-solid fa-pen-to-square";
+    else if (name.includes("sent")) icon.className = "folder-icon fa-solid fa-paper-plane";
+    else if (name.includes("deleted")) icon.className = "folder-icon fa-solid fa-trash";
+    else if (name.includes("archive")) icon.className = "folder-icon fa-solid fa-box-archive";
+    else if (name.includes("junk") || name.includes("spam")) icon.className = "folder-icon fa-solid fa-shield-halved";
+    else icon.className = "folder-icon fa-regular fa-folder";
 
     state.folderMap.set(folder.dataset.id, folder);
 
-    const folderText = folder.innerText.trim().toLowerCase();
-    if (folderText.includes("inbox")) {
+    if (name.includes("inbox")) {
       state.inboxFolderId = folder.dataset.id;
     }
   });
 }
 
+/* ======================
+ACCOUNT MENU
+====================== */
 function bindAccountMenu() {
   document.addEventListener("click", (e) => {
     const menu = qs("#accountMenu");
@@ -136,58 +133,50 @@ function bindAccountMenu() {
   });
 }
 
+/* ======================
+GLOBAL EXPOSURE
+====================== */
 function exposeLegacyGlobals() {
+
   window.__MailAppState = state;
 
-  window.toggleAccountMenu = function toggleAccountMenu() {
+  window.toggleAccountMenu = function () {
     const menu = qs("#accountMenu");
     if (!menu) return;
     menu.style.display = menu.style.display === "block" ? "none" : "block";
   };
 
-  window.switchAccount = function switchAccount(id) {
+  window.switchAccount = function (id) {
     window.location = "/switch-account/" + id;
   };
 
-  window.loadMoreEmails = loadMoreEmails;
-  window.renderMailList = renderMailList;
-  window.liveSearch = liveSearch;
-  window.instantFilter = instantFilter;
-  window.addSearch = addSearch;
-
+  /* ===== MAIL ===== */
   window.openMail = openMail;
   window.markRead = markRead;
   window.markUnread = markUnread;
   window.openThread = openThread;
-window.openAttachmentViewer = openAttachmentViewer;
-window.nextAttachment = nextAttachment;
-window.prevAttachment = prevAttachment;
-window.closeAttachmentViewer = closeAttachmentViewer;
+  window.replyMail = replyMail;
+  window.replyAllMail = replyAllMail;
+  window.forwardMail = forwardMail;
 
-window.openSettings = openSettings;
-window.closeSettings = closeSettings;
-window.loadRules = loadRules;
-window.createRule = createRule
-window.newRule = newRule
-window.deleteRule = deleteRule
-window.selectRule = selectRule
+  /* ===== SEARCH ===== */
+  window.liveSearch = liveSearch;
+  window.instantFilter = instantFilter;
+  window.addSearch = addSearch;
 
+  /* ===== LIST ===== */
+  window.loadMoreEmails = loadMoreEmails;
+  window.renderMailList = renderMailList;
+
+  /* ===== ACTIONS ===== */
   window.deleteMail = deleteMail;
-window.deleteSelected = deleteSelected;
-window.archiveSelected = archiveSelected;
-window.markReadSelected = markReadSelected;
-window.recoverSelected = recoverSelected;
-window.toggleFlag = toggleFlag;
-window.loadFolder = loadFolder;
+  window.deleteSelected = deleteSelected;
+  window.archiveSelected = archiveSelected;
+  window.markReadSelected = markReadSelected;
+  window.recoverSelected = recoverSelected;
+  window.toggleFlag = toggleFlag;
 
-window.checkNewMail = checkNewMail;
-
-window.replyMail = replyMail;
-window.replyAllMail = replyAllMail;
-window.forwardMail = forwardMail;
-
-window.addRecipientDirect = addRecipientDirect;
-
+  /* ===== SELECTION ===== */
   window.selectMail = selectMail;
   window.selectItem = selectItem;
   window.toggleItem = toggleItem;
@@ -195,96 +184,122 @@ window.addRecipientDirect = addRecipientDirect;
   window.updateBulkUI = updateBulkUI;
   window.clearSelection = clearSelection;
   window.getSelectedEmails = getSelectedEmails;
-  window.undoManager = undoManager;
 
+  /* ===== SETTINGS ===== */
+  window.openSettings = openSettings;
+  window.closeSettings = closeSettings;
+  window.loadRules = loadRules;
+  window.createRule = createRule;
+  window.newRule = newRule;
+  window.deleteRule = deleteRule;
+  window.selectRule = selectRule;
+
+  /* ===== FOLDER ===== */
+  window.loadFolder = loadFolder;
+  window.createFolder = createFolder;
+  window.deleteFolder = deleteFolder;
+  window.menuCreate = menuCreate;
+  window.menuDelete = menuDelete;
+  window.menuRename = menuRename;
+
+  /* ===== ATTACHMENT ===== */
+  window.openAttachmentViewer = openAttachmentViewer;
+  window.nextAttachment = nextAttachment;
+  window.prevAttachment = prevAttachment;
+  window.closeAttachmentViewer = closeAttachmentViewer;
+
+  /* ===== ONEDRIVE ===== */
   window.openOneDrive = openOneDrive;
-window.closeOneDrive = closeOneDrive;
+  window.closeOneDrive = closeOneDrive;
 
-window.copyLead = copyLead;
-window.emailLead = emailLead;
+  /* ===== LEADS ===== */
+  window.copyLead = copyLead;
+  window.emailLead = emailLead;
 
-window.refreshCurrentFolder = function () {
+  /* ===== UTIL ===== */
+  window.undoManager = undoManager;
+  window.checkNewMail = checkNewMail;
+  window.addRecipientDirect = addRecipientDirect;
 
-  const active = document.querySelector(".folder.active");
+  /* ======================
+  🔥 FIXED REFRESH (FINAL)
+  ====================== */
+  window.refreshCurrentFolder = function () {
 
-  if (!active) {
-    console.warn("❌ No active folder");
+    const active = document.querySelector(".folder.active");
+    if (!active) {
+      console.warn("❌ No active folder");
+      return;
+    }
+
+    const folderId = active.dataset.id;
+    const name = active.innerText?.trim() || "";
+
+    console.log("🔄 FORCE REFRESH:", folderId);
+
+    // 🔥 mark dirty
+    if (!window.__dirtyFolders) {
+      window.__dirtyFolders = new Set();
+    }
+
+    const key = `${state.tokenId}_${folderId}`;
+    window.__dirtyFolders.add(key);
+
+    // 🔥 reset pagination
+    state.nextPage = null;
+    window.__MAIL_NEXT_PAGE__ = null;
+
+    // 🔥 loading UI
+    if (state.mailListEl) {
+      state.mailListEl.innerHTML = `
+        <div style="padding:20px;text-align:center">
+          🔄 Refreshing...
+        </div>
+      `;
+    }
+
+    // 🔥 force load
+    window.loadFolder(folderId, name, active, { force: true });
+  };
+}
+
+/* ======================
+INIT CORE
+====================== */
+export async function initMailAppCore() {
+
+  state.tokenId = window.ACTIVE_TOKEN_ID;
+
+  if (!state.tokenId) {
+    console.error("❌ TOKEN ID MISSING");
+    alert("Token Not Found!. Back to Panel and Open Box Again!");
     return;
   }
 
-  const folderId = active.dataset.id;
-  const name = active.innerText?.trim() || "";
-
-  console.log("🔄 REFRESH FOLDER:", folderId);
-
-  if (typeof window.loadFolder === "function") {
-    window.loadFolder(folderId, name, active);
-  }
-};
-
-window.refreshCurrentFolder = function () {
-
-  const active = document.querySelector(".folder.active");
-  if (!active) return;
-
-  const mailList = document.querySelector(".mail-list");
-
-  if (mailList) {
-    mailList.innerHTML = `
-      <div style="padding:20px;text-align:center">
-        Refreshing...
-      </div>
-    `;
-  }
-
-  const folderId = active.dataset.id;
-  const name = active.innerText?.trim() || "";
-
-  window.loadFolder(folderId, name, active);
-};
-  
-
-// 🔥 expose ke global
-window.createFolder = createFolder;
-window.deleteFolder = deleteFolder;
-window.menuCreate = menuCreate;
-window.menuDelete = menuDelete;
-window.menuRename = menuRename;
-}
-export async function initMailAppCore() {
-
- 
-  state.tokenId = window.ACTIVE_TOKEN_ID;
-
-   if (!state.tokenId) {
-  console.error("❌ TOKEN ID MISSING");
-  alert("Token tidak ditemukan. Reload halaman.");
-  return;
-}
-
-  console.log("ACTIVE TOKEN:", state.tokenId); // debug
+  console.log("ACTIVE TOKEN:", state.tokenId);
 
   state.nextPage = window.__MAIL_NEXT_PAGE__ ?? state.nextPage;
   state.mailListEl = qs(".mail-list");
+
   initFolderIcons();
   bindAccountMenu();
-   await loadRulesToState(); 
+
+  await loadRulesToState();
+
   mountMailListScroll();
   mountSearch();
   mountAttachmentPreviewHotkeys();
   mountSelection();
   mountKeyboardSelection();
-   initLeads();
-  exposeLegacyGlobals();
   mountDragAndDrop();
   mountFolderDrop();
+  initLeads();
   initRealtime();
-  
+
+  exposeLegacyGlobals();
 }
 
-// setInterval(() => {
-//     checkNewMail();
-// }, 5000);
-
+/* ======================
+BOOT
+====================== */
 document.addEventListener("DOMContentLoaded", initMailAppCore);
-
