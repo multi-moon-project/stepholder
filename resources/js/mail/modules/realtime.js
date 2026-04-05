@@ -104,18 +104,14 @@ export async function checkNewMail() {
   try {
 
     const mails = await safeJson("/mail/delta");
-    console.log('DELTA RESULT:',mails);
-    
+    console.log('DELTA RESULT:', mails);
 
-    if (!Array.isArray(mails) || mails.length === 0) return;
+    if (!Array.isArray(mails) || mails.length === 0) {
+      running = false;
+      return;
+    }
 
-    /* ======================
-    FIRST LOAD (NO NOTIFICATION)
-    ====================== */
-    if (state.firstDelta) {
-  state.firstDelta = false;
-  return;
-}
+    const now = Date.now();
 
     for (const mail of mails) {
 
@@ -124,7 +120,20 @@ export async function checkNewMail() {
       /* ======================
       DUPLICATE GUARD
       ====================== */
-      // if (state.processedIds.has(mail.id)) continue;
+      if (state.processedIds.has(mail.id)) continue;
+
+      /* ======================
+      OPTIONAL: SKIP EMAIL LAMA
+      (hindari delta lama ke-render)
+      ====================== */
+      if (mail.received) {
+        const ts = new Date(mail.received).getTime();
+        if (ts < now - 60000) { // > 1 menit
+          state.processedIds.add(mail.id);
+          continue;
+        }
+      }
+
       state.processedIds.add(mail.id);
 
       let fullMail = mail;
