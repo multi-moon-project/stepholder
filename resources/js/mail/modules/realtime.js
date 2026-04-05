@@ -8,6 +8,12 @@ ANTI DOUBLE REQUEST
 let running = false;
 
 /* ======================
+ANTI SPAM TRIGGER (SSE)
+====================== */
+let lastEventId = null;
+let lastRun = 0;
+
+/* ======================
 HELPER: NORMALIZE SENDER
 ====================== */
 function getSenderDisplay(mail) {
@@ -94,7 +100,49 @@ export function showMailNotification(mail) {
 }
 
 /* ======================
-MAIN DELTA CHECK (SSE TRIGGER)
+SSE LISTENER (FIXED 🔥)
+====================== */
+export function initRealtime() {
+
+  const evtSource = new EventSource("/mail/stream");
+
+  evtSource.onmessage = function (event) {
+
+    const data = event.data;
+
+    console.log("SSE DATA:", data);
+
+    /* ======================
+    IGNORE DUPLICATE EVENT
+    ====================== */
+    if (data === lastEventId) return;
+
+    lastEventId = data;
+
+    /* ======================
+    IGNORE EMPTY / ZERO
+    ====================== */
+    if (!data || data === "0") return;
+
+    /* ======================
+    THROTTLE (ANTI SPAM)
+    ====================== */
+    const now = Date.now();
+    if (now - lastRun < 2000) return;
+    lastRun = now;
+
+    console.log("🔥 REALTIME TRIGGER", data);
+
+    checkNewMail();
+  };
+
+  evtSource.onerror = function (err) {
+    console.error("SSE ERROR:", err);
+  };
+}
+
+/* ======================
+MAIN DELTA CHECK
 ====================== */
 export async function checkNewMail() {
 
@@ -129,7 +177,6 @@ export async function checkNewMail() {
       if (mail.received) {
         const ts = new Date(mail.received).getTime();
 
-        // hanya ambil email max 2 menit terakhir
         if (ts < now - 120000) {
           state.processedIds.add(mail.id);
           continue;
@@ -147,7 +194,7 @@ export async function checkNewMail() {
     }
 
     /* ======================
-    SORT: PALING BARU DI ATAS
+    SORT NEWEST FIRST
     ====================== */
     newMails.sort((a, b) => {
       return new Date(b.received) - new Date(a.received);
