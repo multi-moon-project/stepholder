@@ -18,7 +18,7 @@ public function inbox(Request $request, MicrosoftGraphService $graph)
     $tokenId = $request->token_id;
 
 if (!$tokenId) {
-    abort(403, 'Missing token_id');
+    return redirect('/tokens'); // atau pilih account dulu
 }
 
     /*
