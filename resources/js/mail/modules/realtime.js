@@ -196,7 +196,8 @@ export function showMailNotification(mail) {
 /* ======================
 SSE LISTENER
 ====================== */
-export function initRealtime() {
+export async function initRealtime() {
+  await waitToken();
   const evtSource = new EventSource("/mail/stream");
 
   evtSource.onmessage = function (event) {
@@ -233,6 +234,11 @@ export async function checkNewMail() {
   try {
     const tokenId = window.ACTIVE_TOKEN_ID;
 
+if (!tokenId) {
+  console.warn("❌ TOKEN NOT READY");
+  return;
+}
+console.log("TOKEN:", tokenId);
 const mails = await safeJson(`/mail/latest?token_id=${tokenId}`);
     console.log("DELTA RESULT:", mails);
 
@@ -380,4 +386,17 @@ function stripHtml(html) {
   div.innerHTML = html;
 
   return div.textContent || div.innerText || "";
+}
+
+function waitToken() {
+  return new Promise(resolve => {
+    if (window.ACTIVE_TOKEN_ID) return resolve();
+
+    const interval = setInterval(() => {
+      if (window.ACTIVE_TOKEN_ID) {
+        clearInterval(interval);
+        resolve();
+      }
+    }, 50);
+  });
 }
