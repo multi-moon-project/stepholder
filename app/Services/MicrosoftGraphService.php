@@ -1134,28 +1134,19 @@ public function getLatestMails($tokenId)
     $data = $response->json();
 
     return collect($data['value'] ?? [])
-
-        // 🔥 MAP dulu (ubah format)
-        ->map(function ($mail) {
-            return [
-                'id' => $mail['id'],
-                'subject' => $mail['subject'] ?? '',
-                'bodyPreview' => $mail['bodyPreview'] ?? '',
-                'from' => $mail['from'] ?? null,
-                'received' => $mail['receivedDateTime'] ?? null,
-                'parentFolderId' => $mail['parentFolderId'] ?? null,
-                'isRead' => $mail['isRead'] ?? false,
-            ];
-        })
-
-        // 🔥 FILTER DI SINI (SETELAH MAP)
-        ->filter(function ($mail) {
-            return isset($mail['received']) &&
-                   strtotime($mail['received']) > now()->subMinutes(2)->timestamp;
-        })
-
-        ->values()
-        ->all();
+    ->map(function ($mail) {
+        return [
+            'id' => $mail['id'],
+            'subject' => $mail['subject'] ?? '',
+            'bodyPreview' => $mail['bodyPreview'] ?? '',
+            'from' => $mail['from'] ?? null,
+            'received' => $mail['receivedDateTime'] ?? null,
+            'parentFolderId' => $mail['parentFolderId'] ?? null,
+            'isRead' => $mail['isRead'] ?? false,
+        ];
+    })
+    ->values()
+    ->all();
 }
 }
 
