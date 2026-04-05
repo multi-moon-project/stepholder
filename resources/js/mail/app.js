@@ -4,7 +4,7 @@ import { openOneDrive, closeOneDrive } from "./modules/onedrive.js";
 import { closeSettings,openSettings, loadRules, loadRulesToState, createRule, newRule, deleteRule, selectRule } from './modules/rules.js'
 import { state } from "./core/state.js";
 import { qs, qsa } from "./core/dom.js";
-import { checkNewMail } from './modules/realtime.js'
+import { initRealtime, checkNewMail } from './modules/realtime.js'
 
 import { mountMailListScroll, loadMoreEmails, renderMailList } from "./modules/mailList.js";
 import { addSearch, instantFilter, liveSearch, mountSearch } from "./modules/search.js";
@@ -86,32 +86,7 @@ window.removeAttachment = removeAttachment;
 window.toggleCc = toggleCc;
 window.toggleBcc = toggleBcc;
 
-function initRealtimeStream() {
 
-  const evt = new EventSource('/mail/stream');
-
-  let lastPing = 0;
-
-  evt.onmessage = async (e) => {
-  console.log("SSE DATA:", e.data);
-
-  
-
-    if (!e.data) return;
-
-    if (e.data == lastPing) return;
-
-    lastPing = e.data;
-
-    console.log("🔥 REALTIME TRIGGER", e.data);
-
-    await checkNewMail();
-  };
-
-  evt.onerror = () => {
-    console.warn("SSE disconnected, retrying...");
-  };
-}
 
 function initFolderIcons() {
   qsa(".folder").forEach((folder) => {
@@ -251,7 +226,7 @@ export async function initMailAppCore() {
   exposeLegacyGlobals();
   mountDragAndDrop();
   mountFolderDrop();
-  initRealtimeStream(); // 🔥 WAJIB
+  initRealtime();
   
 }
 

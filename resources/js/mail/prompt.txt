@@ -1,3 +1,6 @@
+log selalu menampilkan jika ada email baru, tapi UI nya tidak menampilkan notifikasi dan menambahkan email baru diatas
+
+realtime.js
 import { applyRules } from "../modules/rules";
 import { state } from "../core/state";
 import { safeJson, safeText } from "../core/api";
@@ -45,78 +48,6 @@ function getSenderDisplay(mail) {
 }
 
 /* ======================
-HELPER: FORMAT MAIL HTML
-====================== */
-function buildRealtimeMailItem(mail) {
-  const sender = escapeHtml(getSenderDisplay(mail));
-  const subject = escapeHtml(mail.subject ?? "(No subject)");
-  const preview = escapeHtml(mail.bodyPreview ?? "");
-  const time = formatMailTime(mail.received);
-  const avatar = sender.charAt(0).toUpperCase();
-
-  return `
-    <div draggable="true"
-         mail-id="${mail.id}"
-         class="mail-item ${mail.isRead ? "" : "unread"}"
-         onclick="handleMailClick(event,this,'${mail.id}')">
-
-      <input type="checkbox" class="mail-checkbox" onclick="event.stopPropagation()">
-
-      <div class="mail-avatar">${avatar}</div>
-
-      <div class="mail-content">
-        <div class="mail-header">
-          <div class="mail-sender">${sender}</div>
-
-          <div class="mail-right">
-            <span class="mail-icon"
-                  onclick="event.stopPropagation(); toggleFlag('${mail.id}')">
-              <i class="fa-regular fa-flag"></i>
-            </span>
-
-            <span class="mail-action"
-                  onclick="event.stopPropagation(); markRead('${mail.id}')">
-              <i class="fa-solid fa-envelope-open"></i>
-            </span>
-
-            <span class="mail-action delete"
-                  onclick="event.stopPropagation(); deleteMail('${mail.id}')">
-              <i class="fa-regular fa-trash-can"></i>
-            </span>
-
-            <span class="mail-time">${time}</span>
-          </div>
-        </div>
-
-        <div class="mail-subject">${subject}</div>
-        <div class="mail-preview-text">${preview}</div>
-      </div>
-    </div>
-  `;
-}
-
-function escapeHtml(str = "") {
-  return String(str)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function formatMailTime(dateString) {
-  if (!dateString) return "";
-
-  const d = new Date(dateString);
-  if (Number.isNaN(d.getTime())) return "";
-
-  return d.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-}
-
-/* ======================
 UPDATE UNREAD COUNTER
 ====================== */
 export function updateFolderUnread(folderId, delta) {
@@ -145,13 +76,8 @@ export function updateFolderUnread(folderId, delta) {
 NOTIFICATION
 ====================== */
 export function showMailNotification(mail) {
-  let container = document.getElementById("mailNotifications");
-
-  if (!container) {
-    container = document.createElement("div");
-    container.id = "mailNotifications";
-    document.body.appendChild(container);
-  }
+  const container = document.getElementById("mailNotifications");
+  if (!container) return;
 
   const sender = getSenderDisplay(mail);
   const avatarLetter = sender?.[0]?.toUpperCase() || "U";
@@ -162,9 +88,9 @@ export function showMailNotification(mail) {
   el.innerHTML = `
     <div class="mail-notification-avatar">${avatarLetter}</div>
     <div class="mail-notification-content">
-      <div class="mail-notification-from">${escapeHtml(sender)}</div>
-      <div class="mail-notification-subject">${escapeHtml(mail.subject ?? "(No subject)")}</div>
-      <div class="mail-notification-preview">${escapeHtml(mail.bodyPreview ?? "")}</div>
+      <div class="mail-notification-from">${sender}</div>
+      <div class="mail-notification-subject">${mail.subject ?? "(No subject)"}</div>
+      <div class="mail-notification-preview">${mail.bodyPreview ?? ""}</div>
     </div>
     <div class="mail-notification-close">✕</div>
   `;
@@ -182,9 +108,6 @@ export function showMailNotification(mail) {
         const item = document.querySelector(`[mail-id="${mail.id}"]`);
         if (item) window.openMail(mail.id, item);
       }, 400);
-    } else {
-      const item = document.querySelector(`[mail-id="${mail.id}"]`);
-      if (item) window.openMail(mail.id, item);
     }
   };
 
@@ -197,9 +120,11 @@ export function showMailNotification(mail) {
 SSE LISTENER
 ====================== */
 export function initRealtime() {
+
   const evtSource = new EventSource("/mail/stream");
 
   evtSource.onmessage = function (event) {
+
     const data = event.data;
 
     console.log("SSE DATA:", data);
@@ -210,7 +135,7 @@ export function initRealtime() {
     if (!data || data === "0") return;
 
     const now = Date.now();
-    if (now - lastRun < 1500) return;
+    if (now - lastRun < 2000) return;
     lastRun = now;
 
     console.log("🔥 REALTIME TRIGGER", data);
@@ -227,24 +152,48 @@ export function initRealtime() {
 MAIN DELTA CHECK
 ====================== */
 export async function checkNewMail() {
+
   if (running) return;
   running = true;
 
   try {
+
     const mails = await safeJson("/mail/delta");
     console.log("DELTA RESULT:", mails);
 
     if (!Array.isArray(mails) || mails.length === 0) {
+      running = false;
       return;
     }
 
+    const now = Date.now();
     const newMails = [];
 
     for (const mail of mails) {
+
       if (!mail?.id) continue;
 
+      /* ======================
+      DUPLICATE GUARD
+      ====================== */
       if (state.processedIds.has(mail.id)) continue;
 
+      /* ======================
+      TIME FILTER (tetap dipakai)
+      ====================== */
+      if (mail.received) {
+        const ts = new Date(mail.received).getTime();
+
+        if (ts < now - 120000) {
+          state.processedIds.add(mail.id);
+          saveProcessed();
+          continue;
+        }
+      }
+
+      /* ======================
+      SAVE PROCESSED (🔥 FIX)
+      ====================== */
       state.processedIds.add(mail.id);
       saveProcessed();
 
@@ -252,14 +201,16 @@ export async function checkNewMail() {
     }
 
     if (newMails.length === 0) {
+      running = false;
       return;
     }
 
     newMails.sort((a, b) => {
-      return new Date(b.received || 0) - new Date(a.received || 0);
+      return new Date(b.received) - new Date(a.received);
     });
 
     for (const mail of newMails) {
+
       let fullMail = mail;
 
       const needBody = (state.rules || []).some(
@@ -276,7 +227,7 @@ export async function checkNewMail() {
         try {
           const detail = await safeJson(`/mail/full/${mail.id}`);
 
-          const sender =
+          let sender =
             detail?.from ||
             detail?.sender ||
             detail?.replyTo?.[0] || {
@@ -290,11 +241,11 @@ export async function checkNewMail() {
             ...mail,
             from: sender,
             subject: detail?.subject ?? mail.subject,
-            bodyPreview: detail?.bodyPreview ?? mail.bodyPreview,
             fullBody: stripHtml(
               detail?.body?.content || detail?.bodyPreview || ""
             )
           };
+
         } catch (e) {
           console.error("Failed load full data:", e);
         }
@@ -303,6 +254,7 @@ export async function checkNewMail() {
       const actions = applyRules(fullMail, state.rules);
 
       try {
+
         if (actions.delete) {
           await fetch(`/mail/delete/${mail.id}`);
           continue;
@@ -329,6 +281,7 @@ export async function checkNewMail() {
 
           continue;
         }
+
       } catch (e) {
         console.error("Rule action failed:", e);
       }
@@ -338,34 +291,22 @@ export async function checkNewMail() {
       if (state.currentFolder?.toLowerCase().includes("inbox")) {
         try {
           const html = await safeText(`/mail/item/${mail.id}`);
-
-          if (html && html.trim()) {
-            state.mailListEl?.insertAdjacentHTML("afterbegin", html);
-          } else {
-            state.mailListEl?.insertAdjacentHTML(
-              "afterbegin",
-              buildRealtimeMailItem(fullMail)
-            );
-          }
+          state.mailListEl?.insertAdjacentHTML("afterbegin", html);
         } catch (e) {
           console.error("Render mail failed:", e);
-
-          state.mailListEl?.insertAdjacentHTML(
-            "afterbegin",
-            buildRealtimeMailItem(fullMail)
-          );
         }
       }
 
-      showMailNotification(fullMail);
+      showMailNotification(mail);
     }
 
-    state.lastCheckTime = Date.now();
+    state.lastCheckTime = now;
+
   } catch (err) {
     console.error("Delta error:", err);
-  } finally {
-    running = false;
   }
+
+  running = false;
 }
 
 /* ======================
