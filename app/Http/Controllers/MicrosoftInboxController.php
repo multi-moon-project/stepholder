@@ -85,7 +85,8 @@ public function inbox(Request $request, MicrosoftGraphService $graph)
     return view('mail.inbox', [
         'emails' => $emails,
         'nextLink' => $nextLink,
-        'folders' => $folders
+        'folders' => $folders,
+        'tokenId' => $tokenId
     ]);
 }
 

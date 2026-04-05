@@ -2,7 +2,7 @@
 <html>
 <head>
     <script>
-    window.ACTIVE_TOKEN_ID = "{{ session('active_token') }}";
+    window.ACTIVE_TOKEN_ID = "{{ $tokenId ?? '' }}";
 </script>
 <!-- file layout.blade.php -->
 @vite('resources/js/mail/app.js')

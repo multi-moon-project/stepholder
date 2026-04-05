@@ -273,7 +273,7 @@ Route::middleware('auth')->group(function () {
             }
         }
 
-        return redirect('/inbox');
+        return redirect('/inbox')->with('active_token', $id);
     })->where('id','[0-9]+');
 
     Route::get('/mail/{id}', [MicrosoftInboxController::class,'read'])
