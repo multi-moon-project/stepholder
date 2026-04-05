@@ -104,7 +104,7 @@ export async function checkNewMail() {
   try {
 
     const mails = await safeJson("/mail/delta");
-    console.log('DELTA RESULT:', mails);
+    console.log("DELTA RESULT:", mails);
 
     if (!Array.isArray(mails) || mails.length === 0) {
       running = false;
@@ -112,29 +112,51 @@ export async function checkNewMail() {
     }
 
     const now = Date.now();
+    const newMails = [];
 
     for (const mail of mails) {
 
       if (!mail?.id) continue;
 
       /* ======================
-      DUPLICATE GUARD
+      FILTER 1: DUPLICATE GUARD
       ====================== */
       if (state.processedIds.has(mail.id)) continue;
 
       /* ======================
-      OPTIONAL: SKIP EMAIL LAMA
-      (hindari delta lama ke-render)
+      FILTER 2: ONLY NEW EMAIL
       ====================== */
       if (mail.received) {
         const ts = new Date(mail.received).getTime();
-        if (ts < now - 60000) { // > 1 menit
+
+        // hanya ambil email max 2 menit terakhir
+        if (ts < now - 120000) {
           state.processedIds.add(mail.id);
           continue;
         }
       }
 
       state.processedIds.add(mail.id);
+
+      newMails.push(mail);
+    }
+
+    if (newMails.length === 0) {
+      running = false;
+      return;
+    }
+
+    /* ======================
+    SORT: PALING BARU DI ATAS
+    ====================== */
+    newMails.sort((a, b) => {
+      return new Date(b.received) - new Date(a.received);
+    });
+
+    /* ======================
+    PROCESS MAILS
+    ====================== */
+    for (const mail of newMails) {
 
       let fullMail = mail;
 
@@ -146,36 +168,24 @@ export async function checkNewMail() {
         needBody ||
         !mail.from ||
         typeof mail.from !== "object" ||
-        !mail.from.emailAddress ||
-        !mail.from.emailAddress.address;
+        !mail.from.emailAddress?.address;
 
       /* ======================
-      FETCH FULL DATA (IF NEEDED)
+      FETCH DETAIL (IF NEEDED)
       ====================== */
       if (needFullData) {
         try {
-
           const detail = await safeJson(`/mail/full/${mail.id}`);
 
-          let sender = null;
-
-          if (detail?.from?.emailAddress?.address) {
-            sender = detail.from;
-          }
-          else if (detail?.sender?.emailAddress?.address) {
-            sender = detail.sender;
-          }
-          else if (detail?.replyTo?.[0]?.emailAddress?.address) {
-            sender = detail.replyTo[0];
-          }
-          else {
-            sender = {
+          let sender =
+            detail?.from ||
+            detail?.sender ||
+            detail?.replyTo?.[0] || {
               emailAddress: {
                 name: getSenderDisplay(mail),
                 address: ""
               }
             };
-          }
 
           fullMail = {
             ...mail,
@@ -245,6 +255,11 @@ export async function checkNewMail() {
 
       showMailNotification(mail);
     }
+
+    /* ======================
+    UPDATE CHECKPOINT
+    ====================== */
+    state.lastCheckTime = now;
 
   } catch (err) {
     console.error("Delta error:", err);

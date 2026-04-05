@@ -36,4 +36,5 @@ export const state = {
   folderAbort: null,
   deltaAbort: null,
   rules: [],
+  lastCheckTime: Date.now(),
 };
