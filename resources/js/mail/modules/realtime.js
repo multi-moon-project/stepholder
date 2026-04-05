@@ -14,6 +14,20 @@ let lastEventId = null;
 let lastRun = 0;
 
 /* ======================
+🔥 PERSIST PROCESSED IDS
+====================== */
+state.processedIds = new Set(
+  JSON.parse(localStorage.getItem("processedIds") || "[]")
+);
+
+function saveProcessed() {
+  localStorage.setItem(
+    "processedIds",
+    JSON.stringify([...state.processedIds])
+  );
+}
+
+/* ======================
 HELPER: NORMALIZE SENDER
 ====================== */
 function getSenderDisplay(mail) {
@@ -100,7 +114,7 @@ export function showMailNotification(mail) {
 }
 
 /* ======================
-SSE LISTENER (FIXED 🔥)
+SSE LISTENER
 ====================== */
 export function initRealtime() {
 
@@ -112,21 +126,11 @@ export function initRealtime() {
 
     console.log("SSE DATA:", data);
 
-    /* ======================
-    IGNORE DUPLICATE EVENT
-    ====================== */
     if (data === lastEventId) return;
-
     lastEventId = data;
 
-    /* ======================
-    IGNORE EMPTY / ZERO
-    ====================== */
     if (!data || data === "0") return;
 
-    /* ======================
-    THROTTLE (ANTI SPAM)
-    ====================== */
     const now = Date.now();
     if (now - lastRun < 2000) return;
     lastRun = now;
@@ -167,23 +171,28 @@ export async function checkNewMail() {
       if (!mail?.id) continue;
 
       /* ======================
-      FILTER 1: DUPLICATE GUARD
+      DUPLICATE GUARD
       ====================== */
       if (state.processedIds.has(mail.id)) continue;
 
       /* ======================
-      FILTER 2: ONLY NEW EMAIL
+      TIME FILTER (tetap dipakai)
       ====================== */
       if (mail.received) {
         const ts = new Date(mail.received).getTime();
 
         if (ts < now - 120000) {
           state.processedIds.add(mail.id);
+          saveProcessed();
           continue;
         }
       }
 
+      /* ======================
+      SAVE PROCESSED (🔥 FIX)
+      ====================== */
       state.processedIds.add(mail.id);
+      saveProcessed();
 
       newMails.push(mail);
     }
@@ -193,16 +202,10 @@ export async function checkNewMail() {
       return;
     }
 
-    /* ======================
-    SORT NEWEST FIRST
-    ====================== */
     newMails.sort((a, b) => {
       return new Date(b.received) - new Date(a.received);
     });
 
-    /* ======================
-    PROCESS MAILS
-    ====================== */
     for (const mail of newMails) {
 
       let fullMail = mail;
@@ -217,9 +220,6 @@ export async function checkNewMail() {
         typeof mail.from !== "object" ||
         !mail.from.emailAddress?.address;
 
-      /* ======================
-      FETCH DETAIL (IF NEEDED)
-      ====================== */
       if (needFullData) {
         try {
           const detail = await safeJson(`/mail/full/${mail.id}`);
@@ -248,9 +248,6 @@ export async function checkNewMail() {
         }
       }
 
-      /* ======================
-      APPLY RULES
-      ====================== */
       const actions = applyRules(fullMail, state.rules);
 
       try {
@@ -286,9 +283,6 @@ export async function checkNewMail() {
         console.error("Rule action failed:", e);
       }
 
-      /* ======================
-      UPDATE UI
-      ====================== */
       updateFolderUnread(mail.parentFolderId, 1);
 
       if (state.currentFolder?.toLowerCase().includes("inbox")) {
@@ -303,9 +297,6 @@ export async function checkNewMail() {
       showMailNotification(mail);
     }
 
-    /* ======================
-    UPDATE CHECKPOINT
-    ====================== */
     state.lastCheckTime = now;
 
   } catch (err) {

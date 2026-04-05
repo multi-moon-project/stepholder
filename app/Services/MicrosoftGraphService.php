@@ -538,19 +538,25 @@ public function delta($tokenId)
     }
 
     // 🔥 FILTER EMAIL BARU SAJA
-    $mails = collect($data['value'] ?? [])
-        ->filter(function ($mail) {
+   $mails = collect($data['value'] ?? [])
+    ->filter(function ($mail) use ($sub) {
 
-            if (!isset($mail['receivedDateTime'])) return false;
+        if (!isset($mail['id'])) return false;
 
-            $received = strtotime($mail['receivedDateTime']);
+        // 🔥 ambil hanya yang BELUM pernah diproses
+        return !\Cache::has('mail_seen_' . $mail['id']);
+    })
+    ->map(function ($mail) {
 
-            return $received >= now()->subSeconds(30)->timestamp;
-        })
-        ->values()
-        ->all();
+        // 🔥 tandai sudah diproses (5 menit cukup)
+        \Cache::put('mail_seen_' . $mail['id'], true, 300);
 
-    return $mails;
+        return $mail;
+    })
+    ->values()
+    ->all();
+
+return $mails;
 }
 
 
