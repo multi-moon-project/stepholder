@@ -231,7 +231,9 @@ export async function checkNewMail() {
   running = true;
 
   try {
-    const mails = await safeJson("/mail/latest");
+    const tokenId = window.ACTIVE_TOKEN_ID;
+
+const mails = await safeJson(`/mail/latest?token_id=${tokenId}`);
     console.log("DELTA RESULT:", mails);
 
     if (!Array.isArray(mails) || mails.length === 0) {

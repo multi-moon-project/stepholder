@@ -318,5 +318,8 @@ Loading...
 <script>
   window.__MAIL_NEXT_PAGE__ = @json($nextLink ?? null);
 </script>
+<script>
+    window.ACTIVE_TOKEN_ID = "{{ session('active_token') }}";
+</script>
 </body>
 </html>
