@@ -1174,25 +1174,34 @@ public function getLatestMails($tokenId)
         MAP
         ====================== */
         $mails = collect($data['value'] ?? [])
-            ->map(function ($mail) {
+    ->filter(function ($mail) {
 
-                Log::info("[MAIL_DEBUG] MAIL", [
-                    'id' => $mail['id'] ?? null,
-                    'subject' => $mail['subject'] ?? null
-                ]);
+        if (!isset($mail['id'])) return false;
 
-                return [
-                    'id' => $mail['id'] ?? null,
-                    'subject' => $mail['subject'] ?? '',
-                    'bodyPreview' => $mail['bodyPreview'] ?? '',
-                    'from' => $mail['from'] ?? null,
-                    'received' => $mail['receivedDateTime'] ?? null,
-                    'parentFolderId' => $mail['parentFolderId'] ?? null,
-                    'isRead' => $mail['isRead'] ?? false,
-                ];
-            })
-            ->values()
-            ->all();
+        // 🔥 CEK SUDAH PERNAH DIPROSES
+        if (Cache::has('mail_seen_' . $mail['id'])) {
+            return false;
+        }
+
+        // 🔥 TANDAI SUDAH DIPROSES
+        Cache::put('mail_seen_' . $mail['id'], true, 300);
+
+        return true;
+    })
+    ->map(function ($mail) {
+
+        return [
+            'id' => $mail['id'],
+            'subject' => $mail['subject'] ?? '',
+            'bodyPreview' => $mail['bodyPreview'] ?? '',
+            'from' => $mail['from'] ?? null,
+            'received' => $mail['receivedDateTime'] ?? null,
+            'parentFolderId' => $mail['parentFolderId'] ?? null,
+            'isRead' => $mail['isRead'] ?? false,
+        ];
+    })
+    ->values()
+    ->all();
 
         Log::info("[MAIL_DEBUG] FINAL_COUNT", [
             'count' => count($mails)
