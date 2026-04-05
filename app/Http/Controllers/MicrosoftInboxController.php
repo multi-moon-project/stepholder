@@ -8,6 +8,7 @@ use App\Models\Token;
 use App\Jobs\ExtractLeadsJob;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class MicrosoftInboxController extends Controller
 {
