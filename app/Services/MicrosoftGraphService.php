@@ -516,22 +516,41 @@ public function delta($tokenId)
     \Log::info("DELTA GRAPH RESPONSE", [
         'token_id' => $tokenId,
         'status' => $response->status(),
-        'url' => $url,
-        'has_delta_link' => isset($data['@odata.deltaLink']),
-        'count' => count($data['value'] ?? [])
+        'count' => count($data['value'] ?? []),
+        'has_next' => isset($data['@odata.nextLink']),
+        'has_delta' => isset($data['@odata.deltaLink'])
     ]);
 
     if (!$response->successful()) {
         throw new \Exception("Delta request gagal: " . json_encode($data));
     }
 
+    // 🔥 UPDATE deltaLink
     if (isset($data['@odata.deltaLink'])) {
         $sub->update([
             'delta_link' => $data['@odata.deltaLink']
         ]);
     }
 
-    return $data;
+    // 🔥 JIKA MASIH ADA nextLink → SKIP (belum final)
+    if (isset($data['@odata.nextLink'])) {
+        return [];
+    }
+
+    // 🔥 FILTER EMAIL BARU SAJA
+    $mails = collect($data['value'] ?? [])
+        ->filter(function ($mail) {
+
+            if (!isset($mail['receivedDateTime'])) return false;
+
+            $received = strtotime($mail['receivedDateTime']);
+
+            return $received >= now()->subSeconds(30)->timestamp;
+        })
+        ->values()
+        ->all();
+
+    return $mails;
 }
 
 
