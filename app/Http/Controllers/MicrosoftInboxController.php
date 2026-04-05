@@ -1747,7 +1747,7 @@ public function latest(Request $request, MicrosoftGraphService $graph)
 {
     Log::info("[MAIL_DEBUG] HIT /mail/latest");
 
-    $tokenId = session('token_id');
+    $tokenId = session('active_token');
 
     Log::info("[MAIL_DEBUG] SESSION", [
         'tokenId' => $tokenId
