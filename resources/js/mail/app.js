@@ -93,6 +93,9 @@ function initRealtimeStream() {
   let lastPing = 0;
 
   evt.onmessage = async (e) => {
+  console.log("SSE DATA:", e.data);
+
+  
 
     if (!e.data) return;
 

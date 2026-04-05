@@ -28,19 +28,20 @@ Route::get('/debug-sub', function(){
 });
 
 Route::get('/mail/stream', function () {
-    return response()->stream(function () {
-        while (true) {
-            if (connection_aborted()) break;
 
-            $ping = cache()->get('mail_ping', 0);
+    return response()->stream(function () {
+
+        while (true) {
+
+            $ping = cache('mail_ping', 0);
 
             echo "data: {$ping}\n\n";
-
             ob_flush();
             flush();
 
             sleep(2);
         }
+
     }, 200, [
         'Content-Type' => 'text/event-stream',
         'Cache-Control' => 'no-cache',
