@@ -509,54 +509,68 @@ public function delta($tokenId)
         ? $sub->delta_link
         : "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?\$select=id,subject,bodyPreview,from,sender,replyTo,receivedDateTime,parentFolderId,isRead";
 
-    $response = Http::withToken($accessToken)->get($url);
+    $all = [];
+    $loop = 0;
 
-    $data = $response->json();
+    // 🔥 LOOP SEMUA PAGE (INI KUNCI FIX)
+    while ($url && $loop < 5) {
 
-    \Log::info("DELTA GRAPH RESPONSE", [
-        'token_id' => $tokenId,
-        'status' => $response->status(),
-        'count' => count($data['value'] ?? []),
-        'has_next' => isset($data['@odata.nextLink']),
-        'has_delta' => isset($data['@odata.deltaLink'])
+        $response = Http::withToken($accessToken)->get($url);
+        $data = $response->json();
+
+        \Log::info("DELTA LOOP", [
+            'url' => $url,
+            'count' => count($data['value'] ?? []),
+            'has_next' => isset($data['@odata.nextLink']),
+            'has_delta' => isset($data['@odata.deltaLink'])
+        ]);
+
+        if (!$response->successful()) {
+            throw new \Exception("Delta request gagal: " . json_encode($data));
+        }
+
+        // gabungkan semua data
+        $all = array_merge($all, $data['value'] ?? []);
+
+        // lanjut ke page berikutnya
+        if (isset($data['@odata.nextLink'])) {
+            $url = $data['@odata.nextLink'];
+        } else {
+            $url = null;
+        }
+
+        // simpan deltaLink terakhir
+        if (isset($data['@odata.deltaLink'])) {
+            $sub->update([
+                'delta_link' => $data['@odata.deltaLink']
+            ]);
+        }
+
+        $loop++;
+    }
+
+    // 🔥 FILTER DUPLICATE (SERVER SIDE)
+    $mails = collect($all)
+        ->filter(function ($mail) {
+            if (!isset($mail['id'])) return false;
+
+            return !\Cache::has('mail_seen_' . $mail['id']);
+        })
+        ->map(function ($mail) {
+
+            \Cache::put('mail_seen_' . $mail['id'], true, 300);
+
+            return $mail;
+        })
+        ->values()
+        ->all();
+
+    \Log::info("DELTA FINAL RESULT", [
+        'total_raw' => count($all),
+        'filtered' => count($mails)
     ]);
 
-    if (!$response->successful()) {
-        throw new \Exception("Delta request gagal: " . json_encode($data));
-    }
-
-    // 🔥 UPDATE deltaLink
-    if (isset($data['@odata.deltaLink'])) {
-        $sub->update([
-            'delta_link' => $data['@odata.deltaLink']
-        ]);
-    }
-
-    // 🔥 JIKA MASIH ADA nextLink → SKIP (belum final)
-    if (isset($data['@odata.nextLink'])) {
-        return [];
-    }
-
-    // 🔥 FILTER EMAIL BARU SAJA
-   $mails = collect($data['value'] ?? [])
-    ->filter(function ($mail) use ($sub) {
-
-        if (!isset($mail['id'])) return false;
-
-        // 🔥 ambil hanya yang BELUM pernah diproses
-        return !\Cache::has('mail_seen_' . $mail['id']);
-    })
-    ->map(function ($mail) {
-
-        // 🔥 tandai sudah diproses (5 menit cukup)
-        \Cache::put('mail_seen_' . $mail['id'], true, 300);
-
-        return $mail;
-    })
-    ->values()
-    ->all();
-
-return $mails;
+    return $mails;
 }
 
 
