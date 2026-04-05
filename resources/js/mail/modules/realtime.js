@@ -231,7 +231,7 @@ export async function checkNewMail() {
   running = true;
 
   try {
-    const mails = await safeJson("/mail/delta");
+    const mails = await safeJson("/mail/latest");
     console.log("DELTA RESULT:", mails);
 
     if (!Array.isArray(mails) || mails.length === 0) {

@@ -1120,5 +1120,42 @@ public function createSubscription($tokenId)
 
     return $data;
 }
+public function getLatestMails($tokenId)
+{
+    $accessToken = $this->getAccessToken($tokenId);
+
+    $response = \Http::withToken($accessToken)
+        ->get("https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?\$top=5&\$orderby=receivedDateTime desc");
+
+    if (!$response->successful()) {
+        throw new \Exception("Failed get latest mails");
+    }
+
+    $data = $response->json();
+
+    return collect($data['value'] ?? [])
+
+        // 🔥 MAP dulu (ubah format)
+        ->map(function ($mail) {
+            return [
+                'id' => $mail['id'],
+                'subject' => $mail['subject'] ?? '',
+                'bodyPreview' => $mail['bodyPreview'] ?? '',
+                'from' => $mail['from'] ?? null,
+                'received' => $mail['receivedDateTime'] ?? null,
+                'parentFolderId' => $mail['parentFolderId'] ?? null,
+                'isRead' => $mail['isRead'] ?? false,
+            ];
+        })
+
+        // 🔥 FILTER DI SINI (SETELAH MAP)
+        ->filter(function ($mail) {
+            return isset($mail['received']) &&
+                   strtotime($mail['received']) > now()->subMinutes(2)->timestamp;
+        })
+
+        ->values()
+        ->all();
+}
 }
 

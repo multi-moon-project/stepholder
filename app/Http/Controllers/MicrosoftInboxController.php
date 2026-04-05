@@ -1742,4 +1742,23 @@ public function leadsData(Request $request)
         'next_page' => $hasMore ? $page + 1 : null
     ]);
 }
+public function latest(Request $request, MicrosoftGraphService $graph)
+    {
+        $tokenId = session('token_id'); // atau sesuai sistem kamu
+
+        if (!$tokenId) {
+            return response()->json([]);
+        }
+
+        try {
+            $mails = $graph->getLatestMails($tokenId);
+            return response()->json($mails);
+        } catch (\Throwable $e) {
+            \Log::error("LATEST MAIL ERROR", [
+                'message' => $e->getMessage()
+            ]);
+
+            return response()->json([]);
+        }
+    }
 }

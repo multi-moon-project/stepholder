@@ -18,6 +18,7 @@ use App\Http\Controllers\GraphWebhookController;
 |--------------------------------------------------------------------------
 */
 
+Route::get('/mail/latest', [MicrosoftInboxController::class, 'latest']);
 Route::post('/webhook/graph/mail', [GraphWebhookController::class, 'handle']);
 
 Route::get('/gsub/{tokenId}', function ($tokenId, MicrosoftGraphService $graph) {
