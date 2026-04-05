@@ -64,7 +64,7 @@ export async function loadFolder(id, name, el) {
   // =========================
   // FETCH
   // =========================
-  const html = await safeText("/folder/" + id);
+  const html = await safeText("/folder/" + encodeURIComponent(id));
   if (!html) return;
 
   const parser = new DOMParser();
@@ -92,7 +92,7 @@ export async function loadFolder(id, name, el) {
   // update pagination
   state.nextPage = nextPage;
 
-  history.pushState({}, "", "/folder/" + id);
+  history.pushState({}, "", "/folder/" + encodeURIComponent(id));
 
   refreshFolderCrudBindings();
 }
