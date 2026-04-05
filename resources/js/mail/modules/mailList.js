@@ -106,7 +106,7 @@ export function renderMailList(mails, keyword = "", append = false) {
 
 /*
 ========================================
-LOAD MORE (🔥 FULL FIX)
+LOAD MORE (FINAL FIX)
 ========================================
 */
 export async function loadMoreEmails() {
@@ -114,11 +114,16 @@ export async function loadMoreEmails() {
   console.log("NEXT PAGE:", state.nextPage);
 
   if (!state.nextPage || state.loadingMore) return;
+  if (!state.tokenId) {
+    console.warn("❌ Missing tokenId");
+    return;
+  }
 
   state.loadingMore = true;
   showBottomLoader();
 
   try {
+
     /*
     ========================================
     SEARCH MODE
@@ -144,12 +149,17 @@ export async function loadMoreEmails() {
 
     /*
     ========================================
-    NORMAL MODE (FOLDER / INBOX)
+    NORMAL MODE
     ========================================
     */
+    if (!state.currentFolderId) {
+      console.warn("❌ Missing currentFolderId");
+      return;
+    }
+
     let url;
 
-    if (state.currentFolder?.toLowerCase().includes("inbox")) {
+    if (state.currentFolderId === "inbox") {
       url =
         "/inbox?token_id=" +
         encodeURIComponent(state.tokenId) +
@@ -158,7 +168,7 @@ export async function loadMoreEmails() {
     } else {
       url =
         "/folder/" +
-        encodeURIComponent(state.currentFolderId) + // 🔥 FIX WAJIB
+        encodeURIComponent(state.currentFolderId) +
         "?token_id=" +
         encodeURIComponent(state.tokenId) +
         "&next=" +
@@ -174,7 +184,8 @@ export async function loadMoreEmails() {
     const newItems = doc.querySelectorAll(".mail-item");
 
     newItems.forEach((item) => {
-      state.mailListEl.appendChild(item);
+      // 🔥 clone biar aman
+      state.mailListEl.appendChild(item.cloneNode(true));
     });
 
     const next = doc.querySelector("#nextPageLink");

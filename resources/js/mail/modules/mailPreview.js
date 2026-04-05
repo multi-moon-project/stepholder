@@ -64,7 +64,12 @@ export async function openMail(id, el) {
   if (state.previewCache.has(id)) {
     html = state.previewCache.get(id);
   } else {
-    const text = await safeText("/mail/preview/" + id);
+    const text = await safeText(
+      "/mail/preview/" +
+      encodeURIComponent(id) +
+      "?token_id=" +
+      encodeURIComponent(state.tokenId)
+    );
 
     if (!text) {
       preview.innerHTML = `<div style="padding:40px">Unable to load email</div>`;
@@ -120,7 +125,9 @@ export async function openMail(id, el) {
   });
 
   try {
-    await safeFetch("/mail/read/" + id);
+    await safeFetch(
+      `/mail/read/${encodeURIComponent(id)}?token_id=${state.tokenId}`
+    );
   } catch {}
 
   if (el) {
@@ -131,34 +138,32 @@ export async function openMail(id, el) {
 }
 
 /* ===============================
-   REPLY / FORWARD (🔥 FIX UTAMA)
+   REPLY / FORWARD
 =============================== */
 
 export async function replyMail(id) {
   console.log("↩️ REPLY:", id);
 
   const preview = qs(".mail-preview");
+  if (!preview) return;
+
   preview.innerHTML = skeletonPreview();
 
-  const res = await fetch("/mail/reply/" + id);
+  const res = await safeFetch(
+    `/mail/reply/${encodeURIComponent(id)}?token_id=${state.tokenId}`
+  );
+
   const data = await res.json();
 
   preview.innerHTML = data.html;
 
-  // 🔥 SET BODY DULU
   window.composeBody = data.body;
 
-  console.log("📦 BODY FROM SERVER:", data.body);
-
-  // 🔥 WAJIB: load TinyMCE dulu
   if (window.loadEditor) {
     await window.loadEditor();
   }
 
-  // 🔥 BARU INIT
   setTimeout(() => {
-    console.log("🚀 INIT EDITOR FROM PREVIEW");
-
     window.initEditor?.();
     window.initRecipientChips?.();
     window.mountAttachmentInput?.();
@@ -169,19 +174,20 @@ export async function replyAllMail(id) {
   console.log("👥 REPLY ALL:", id);
 
   const preview = qs(".mail-preview");
+  if (!preview) return;
+
   preview.innerHTML = skeletonPreview();
 
-  const res = await fetch("/mail/reply-all/" + id);
+  const res = await safeFetch(
+    `/mail/reply-all/${encodeURIComponent(id)}?token_id=${state.tokenId}`
+  );
+
   const data = await res.json();
 
   preview.innerHTML = data.html;
 
-  // 🔥 SET BODY
   window.composeBody = data.body;
 
-  console.log("📦 BODY REPLY ALL:", data.body);
-
-  // 🔥 load TinyMCE
   if (window.loadEditor) {
     await window.loadEditor();
   }
@@ -197,17 +203,19 @@ export async function forwardMail(id) {
   console.log("📤 FORWARD:", id);
 
   const preview = qs(".mail-preview");
+  if (!preview) return;
+
   preview.innerHTML = skeletonPreview();
 
-  const res = await fetch("/mail/forward/" + id);
+  const res = await safeFetch(
+    `/mail/forward/${encodeURIComponent(id)}?token_id=${state.tokenId}`
+  );
+
   const data = await res.json();
 
   preview.innerHTML = data.html;
 
-  // 🔥 SET BODY
   window.composeBody = data.body;
-
-  console.log("📦 BODY FORWARD:", data.body);
 
   if (window.loadEditor) {
     await window.loadEditor();
@@ -225,7 +233,9 @@ export async function forwardMail(id) {
 =============================== */
 
 export async function markUnread(id) {
-  await safeFetch("/mail/unread/" + id);
+  await safeFetch(
+    `/mail/unread/${encodeURIComponent(id)}?token_id=${state.tokenId}`
+  );
 
   const item = document.querySelector(`.mail-item[mail-id="${id}"]`);
   if (!item) return;
@@ -237,7 +247,9 @@ export async function markUnread(id) {
 }
 
 export async function markRead(id) {
-  await safeFetch("/mail/read/" + id);
+  await safeFetch(
+    `/mail/read/${encodeURIComponent(id)}?token_id=${state.tokenId}`
+  );
 
   const item = document.querySelector(`.mail-item[mail-id="${id}"]`);
   if (!item) return;
@@ -256,10 +268,13 @@ export function openThread(conversationId, messageId) {
   const threadId = conversationId || messageId;
 
   const preview = qs(".mail-preview");
+  if (!preview) return;
+
   preview.innerHTML = "Loading...";
 
-  safeText(`/mail/thread/${threadId}?message=${messageId}`)
-    .then((html) => {
-      if (html) preview.innerHTML = html;
-    });
+  safeText(
+    `/mail/thread/${encodeURIComponent(threadId)}?message=${encodeURIComponent(messageId)}&token_id=${state.tokenId}`
+  ).then((html) => {
+    if (html) preview.innerHTML = html;
+  });
 }

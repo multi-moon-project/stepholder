@@ -2,10 +2,16 @@ import { state } from "../core/state";
 import { qs, qsa } from "../core/dom";
 import { openMail } from "./mailPreview.js";
 
+/* ======================
+HELPER
+====================== */
 function getMailItems() {
-  return qsa(".mail-item");
+  return Array.from(qsa(".mail-item"));
 }
 
+/* ======================
+GET SELECTED
+====================== */
 export function getSelectedEmails() {
   const ids = [];
 
@@ -18,6 +24,10 @@ export function getSelectedEmails() {
 
   return ids;
 }
+
+/* ======================
+SELECT ITEM
+====================== */
 export function selectItem(el, stateValue) {
   if (!el) return;
 
@@ -42,14 +52,20 @@ export function selectItem(el, stateValue) {
 
   updateBulkUI();
 }
+
+/* ======================
+TOGGLE
+====================== */
 export function toggleItem(el) {
   if (!el) return;
 
   const selected = el.classList.contains("selected");
   selectItem(el, !selected);
-  updateBulkUI();
 }
 
+/* ======================
+MAIN SELECT LOGIC
+====================== */
 export function selectMail(event, el) {
   const items = getMailItems();
   const index = items.indexOf(el);
@@ -72,6 +88,10 @@ export function selectMail(event, el) {
 
   state.lastSelectedIndex = index;
 }
+
+/* ======================
+BULK UI
+====================== */
 export function updateBulkUI() {
   const selected = qsa(".mail-item.selected");
   const preview = qs(".mail-preview");
@@ -81,7 +101,8 @@ export function updateBulkUI() {
     state.previewRequest++;
 
     let restoreBtn = "";
-    if ((state.currentFolder || "").toLowerCase().includes("deleted")) {
+
+    if (state.currentFolderId === "deleteditems") {
       restoreBtn = `<button onclick="recoverSelected()">♻ Restore</button>`;
     }
 
@@ -100,6 +121,10 @@ export function updateBulkUI() {
     `;
   }
 }
+
+/* ======================
+CLEAR
+====================== */
 export function clearSelection() {
   state.selectedMails.clear();
 
@@ -118,6 +143,10 @@ export function clearSelection() {
     </div>
   `;
 }
+
+/* ======================
+CLICK HANDLER
+====================== */
 export function handleMailClick(event, el, id) {
   selectMail(event, el);
 
@@ -135,7 +164,14 @@ export function handleMailClick(event, el, id) {
   openMail(id, el);
 }
 
+/* ======================
+MOUNT CLICK
+====================== */
 export function mountSelection() {
+
+  if (document.body.dataset.selectionBound) return;
+  document.body.dataset.selectionBound = "1";
+
   document.addEventListener("click", (e) => {
     if (!e.target.classList.contains("mail-checkbox")) return;
 
@@ -171,8 +207,13 @@ export function mountSelection() {
     });
   }
 }
+
+/* ======================
+KEYBOARD NAV
+====================== */
 export function mountKeyboardSelection() {
   document.addEventListener("keydown", (e) => {
+
     const tag = document.activeElement?.tagName?.toLowerCase() || "";
     if (tag === "input" || tag === "textarea" || document.activeElement?.isContentEditable) {
       return;
@@ -184,16 +225,16 @@ export function mountKeyboardSelection() {
       return;
     }
 
-    const items = qsa(".mail-item");
+    const items = getMailItems();
     if (!items.length) return;
 
     if (e.key === "ArrowDown") {
       e.preventDefault();
 
-      state.currentIndex++;
-      if (state.currentIndex >= items.length) {
-        state.currentIndex = items.length - 1;
-      }
+      state.currentIndex = Math.min(
+        (state.currentIndex ?? 0) + 1,
+        items.length - 1
+      );
 
       const el = items[state.currentIndex];
       const id = el.getAttribute("mail-id");
@@ -209,10 +250,10 @@ export function mountKeyboardSelection() {
     if (e.key === "ArrowUp") {
       e.preventDefault();
 
-      state.currentIndex--;
-      if (state.currentIndex < 0) {
-        state.currentIndex = 0;
-      }
+      state.currentIndex = Math.max(
+        (state.currentIndex ?? 0) - 1,
+        0
+      );
 
       const el = items[state.currentIndex];
       const id = el.getAttribute("mail-id");
@@ -224,38 +265,32 @@ export function mountKeyboardSelection() {
 
       return;
     }
-     const active = qs(".mail-item.active");
+
+    const active = qs(".mail-item.active");
     if (!active) return;
 
     const id = active.getAttribute("mail-id");
     if (!id) return;
 
-    switch (String(e.key).toLowerCase()) {
-      case "delete":
-        if (typeof window.deleteMail === "function") {
-          window.deleteMail(id);
-        }
-        break;
-      default:
-        break;
+    if (e.key.toLowerCase() === "delete") {
+      window.deleteMail?.(id);
     }
   });
 }
 
+/* ======================
+DRAG & DROP
+====================== */
 export function mountDragAndDrop() {
 
   const mailListEl = document.querySelector(".mail-list");
   if (!mailListEl) return;
 
-  // 🔥 prevent double binding
   if (mailListEl.dataset.dragBound) return;
   mailListEl.dataset.dragBound = "1";
 
   let draggedMails = [];
 
-  // ===============================
-  // ENABLE DRAGGABLE
-  // ===============================
   mailListEl.addEventListener("mousedown", function (e) {
     const item = e.target.closest(".mail-item");
     if (!item) return;
@@ -263,15 +298,11 @@ export function mountDragAndDrop() {
     item.setAttribute("draggable", "true");
   });
 
-  // ===============================
-  // DRAG START
-  // ===============================
   mailListEl.addEventListener("dragstart", function (e) {
 
     const item = e.target.closest(".mail-item");
     if (!item) return;
 
-    // ambil selected dari DOM
     const selected = document.querySelectorAll(".mail-item.selected");
 
     if (selected.length) {
@@ -282,9 +313,6 @@ export function mountDragAndDrop() {
       draggedMails = [item.getAttribute("mail-id")];
     }
 
-    // ===============================
-    // DRAG ICON
-    // ===============================
     const dragIcon = document.createElement("div");
 
     dragIcon.style.position = "absolute";
@@ -305,8 +333,6 @@ export function mountDragAndDrop() {
 
     setTimeout(() => dragIcon.remove(), 0);
 
-    // simpan global (dipakai drop handler)
     window.__draggedMails = draggedMails;
-
   });
 }

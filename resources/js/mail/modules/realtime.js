@@ -1,6 +1,6 @@
 import { applyRules } from "../modules/rules";
 import { state } from "../core/state";
-import { safeJson, safeText } from "../core/api";
+import { safeJson, safeText, safeFetch } from "../core/api";
 
 /* ======================
 ANTI DOUBLE REQUEST
@@ -14,7 +14,7 @@ let lastEventId = null;
 let lastRun = 0;
 
 /* ======================
-🔥 PERSIST PROCESSED IDS
+PERSIST PROCESSED IDS
 ====================== */
 state.processedIds = new Set(
   JSON.parse(localStorage.getItem("processedIds") || "[]")
@@ -28,7 +28,7 @@ function saveProcessed() {
 }
 
 /* ======================
-HELPER: NORMALIZE SENDER
+HELPER
 ====================== */
 function getSenderDisplay(mail) {
   if (!mail?.from) return "Unknown";
@@ -44,8 +44,29 @@ function getSenderDisplay(mail) {
   return mail.from;
 }
 
+function escapeHtml(str = "") {
+  return String(str)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function formatMailTime(dateString) {
+  if (!dateString) return "";
+
+  const d = new Date(dateString);
+  if (Number.isNaN(d.getTime())) return "";
+
+  return d.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
 /* ======================
-HELPER: FORMAT MAIL HTML
+BUILD MAIL ITEM
 ====================== */
 function buildRealtimeMailItem(mail) {
   const sender = escapeHtml(getSenderDisplay(mail));
@@ -95,34 +116,13 @@ function buildRealtimeMailItem(mail) {
   `;
 }
 
-function escapeHtml(str = "") {
-  return String(str)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function formatMailTime(dateString) {
-  if (!dateString) return "";
-
-  const d = new Date(dateString);
-  if (Number.isNaN(d.getTime())) return "";
-
-  return d.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-}
-
 /* ======================
-UPDATE UNREAD COUNTER
+UNREAD COUNTER
 ====================== */
 export function updateFolderUnread(folderId, delta) {
   if (!folderId) return;
 
-  const folder = state.folderMap.get(folderId);
+  const folder = state.folderMap?.get(folderId);
   if (!folder) return;
 
   let counter = folder.querySelector(".folder-count");
@@ -175,7 +175,7 @@ export function showMailNotification(mail) {
   };
 
   el.onclick = async () => {
-    if (!state.currentFolder?.toLowerCase().includes("inbox")) {
+    if (state.currentFolderId !== "inbox") {
       await window.loadFolder(state.inboxFolderId, "Inbox");
 
       setTimeout(() => {
@@ -189,7 +189,6 @@ export function showMailNotification(mail) {
   };
 
   container.prepend(el);
-
   setTimeout(() => el.remove(), 5000);
 }
 
@@ -198,12 +197,13 @@ SSE LISTENER
 ====================== */
 export async function initRealtime() {
   await waitToken();
-  const evtSource = new EventSource("/mail/stream");
+
+  const evtSource = new EventSource(
+    "/mail/stream?token_id=" + encodeURIComponent(state.tokenId)
+  );
 
   evtSource.onmessage = function (event) {
     const data = event.data;
-
-    console.log("SSE DATA:", data);
 
     if (data === lastEventId) return;
     lastEventId = data;
@@ -214,8 +214,6 @@ export async function initRealtime() {
     if (now - lastRun < 1500) return;
     lastRun = now;
 
-    console.log("🔥 REALTIME TRIGGER", data);
-
     checkNewMail();
   };
 
@@ -225,26 +223,20 @@ export async function initRealtime() {
 }
 
 /* ======================
-MAIN DELTA CHECK
+MAIN CHECK
 ====================== */
 export async function checkNewMail() {
   if (running) return;
   running = true;
 
   try {
-    const tokenId = window.ACTIVE_TOKEN_ID;
+    if (!state.tokenId) return;
 
-if (!tokenId) {
-  console.warn("❌ TOKEN NOT READY");
-  return;
-}
-console.log("TOKEN:", tokenId);
-const mails = await safeJson(`/mail/latest?token_id=${tokenId}`);
-    console.log("DELTA RESULT:", mails);
+    const mails = await safeJson(
+      `/mail/latest?token_id=${encodeURIComponent(state.tokenId)}`
+    );
 
-    if (!Array.isArray(mails) || mails.length === 0) {
-      return;
-    }
+    if (!Array.isArray(mails) || mails.length === 0) return;
 
     const newMails = [];
 
@@ -259,82 +251,55 @@ const mails = await safeJson(`/mail/latest?token_id=${tokenId}`);
       newMails.push(mail);
     }
 
-    if (newMails.length === 0) {
-      return;
-    }
+    if (!newMails.length) return;
 
     newMails.sort((a, b) => {
       return new Date(b.received || 0) - new Date(a.received || 0);
     });
 
     for (const mail of newMails) {
+
       let fullMail = mail;
 
       const needBody = (state.rules || []).some(
         r => r.conditionType === "bodyContains"
       );
 
-      const needFullData =
-        needBody ||
-        !mail.from ||
-        typeof mail.from !== "object" ||
-        !mail.from.emailAddress?.address;
-
-      if (needFullData) {
+      if (needBody) {
         try {
-          const detail = await safeJson(`/mail/full/${mail.id}`);
-
-          const sender =
-            detail?.from ||
-            detail?.sender ||
-            detail?.replyTo?.[0] || {
-              emailAddress: {
-                name: getSenderDisplay(mail),
-                address: ""
-              }
-            };
+          const detail = await safeJson(
+            `/mail/full/${mail.id}?token_id=${state.tokenId}`
+          );
 
           fullMail = {
             ...mail,
-            from: sender,
-            subject: detail?.subject ?? mail.subject,
-            bodyPreview: detail?.bodyPreview ?? mail.bodyPreview,
-            fullBody: stripHtml(
-              detail?.body?.content || detail?.bodyPreview || ""
-            )
+            ...detail
           };
-        } catch (e) {
-          console.error("Failed load full data:", e);
-        }
+        } catch {}
       }
 
       const actions = applyRules(fullMail, state.rules);
 
       try {
         if (actions.delete) {
-          await fetch(`/mail/delete/${mail.id}`);
+          await safeFetch(`/mail/delete/${mail.id}?token_id=${state.tokenId}`);
           continue;
         }
 
         if (actions.read) {
-          await fetch(`/mail/read/${mail.id}`);
+          await safeFetch(`/mail/read/${mail.id}?token_id=${state.tokenId}`);
         }
 
         if (actions.moveTo) {
-          await fetch(`/mail/move`, {
+          await safeFetch("/mail/move", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-CSRF-TOKEN": document
-                .querySelector('meta[name="csrf-token"]')
-                ?.getAttribute("content")
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               ids: [mail.id],
-              folder: actions.moveTo
+              folder: actions.moveTo,
+              token_id: state.tokenId
             })
           });
-
           continue;
         }
       } catch (e) {
@@ -343,9 +308,11 @@ const mails = await safeJson(`/mail/latest?token_id=${tokenId}`);
 
       updateFolderUnread(mail.parentFolderId, 1);
 
-      if (state.currentFolder?.toLowerCase().includes("inbox")) {
+      if (state.currentFolderId === "inbox") {
         try {
-          const html = await safeText(`/mail/item/${mail.id}`);
+          const html = await safeText(
+            `/mail/item/${mail.id}?token_id=${state.tokenId}`
+          );
 
           if (html && html.trim()) {
             state.mailListEl?.insertAdjacentHTML("afterbegin", html);
@@ -355,9 +322,7 @@ const mails = await safeJson(`/mail/latest?token_id=${tokenId}`);
               buildRealtimeMailItem(fullMail)
             );
           }
-        } catch (e) {
-          console.error("Render mail failed:", e);
-
+        } catch {
           state.mailListEl?.insertAdjacentHTML(
             "afterbegin",
             buildRealtimeMailItem(fullMail)
@@ -368,32 +333,22 @@ const mails = await safeJson(`/mail/latest?token_id=${tokenId}`);
       showMailNotification(fullMail);
     }
 
-    state.lastCheckTime = Date.now();
   } catch (err) {
-    console.error("Delta error:", err);
+    console.error("Realtime error:", err);
   } finally {
     running = false;
   }
 }
 
 /* ======================
-STRIP HTML
+UTIL
 ====================== */
-function stripHtml(html) {
-  if (!html) return "";
-
-  const div = document.createElement("div");
-  div.innerHTML = html;
-
-  return div.textContent || div.innerText || "";
-}
-
 function waitToken() {
   return new Promise(resolve => {
-    if (window.ACTIVE_TOKEN_ID) return resolve();
+    if (state.tokenId) return resolve();
 
     const interval = setInterval(() => {
-      if (window.ACTIVE_TOKEN_ID) {
+      if (state.tokenId) {
         clearInterval(interval);
         resolve();
       }

@@ -3,14 +3,15 @@ import { qs, qsa } from "../core/dom";
 import { safeFetch } from "../core/api";
 import { getCsrfToken } from "../core/utils";
 import { undoManager } from "../core/undo";
+import { loadFolder } from "./folder";
 
 function reloadInboxAndClearFolderCache() {
   if (state.folderCache?.clear) {
     state.folderCache.clear();
   }
 
-  if (typeof window.loadFolder === "function") {
-    window.loadFolder(state.inboxFolderId, "Inbox");
+  if (typeof loadFolder === "function") {
+    loadFolder(state.inboxFolderId, "Inbox");
   }
 }
 
@@ -24,11 +25,13 @@ export async function createFolder() {
       "Content-Type": "application/json",
       "X-CSRF-TOKEN": getCsrfToken(),
     },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({
+      name,
+      token_id: state.tokenId
+    }),
   });
 
-  await reloadSidebar(); // 🔥 INI KUNCI
-
+  await reloadSidebar();
   reloadInboxAndClearFolderCache();
 
   undoManager.notify("Folder created");
@@ -39,15 +42,16 @@ export async function deleteFolder(id) {
     return;
   }
 
-  await safeFetch("/folder/delete/" + id, {
+  await safeFetch(`/folder/delete/${id}?token_id=${state.tokenId}`, {
     method: "DELETE",
     headers: {
       "X-CSRF-TOKEN": getCsrfToken(),
     },
   });
 
-  await reloadSidebar(); // 🔥 INI KUNCI
+  await reloadSidebar();
   reloadInboxAndClearFolderCache();
+
   undoManager.notify("Folder deleted");
 }
 
@@ -59,16 +63,21 @@ export async function saveRename(id, input) {
     return;
   }
 
-  await safeFetch("/folder/rename/" + id, {
+  await safeFetch(`/folder/rename/${id}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
       "X-CSRF-TOKEN": getCsrfToken(),
     },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({
+      name,
+      token_id: state.tokenId
+    }),
   });
-await reloadSidebar(); // 🔥 INI KUNCI
+
+  await reloadSidebar();
   reloadInboxAndClearFolderCache();
+
   undoManager.notify("Folder renamed");
 }
 
@@ -148,6 +157,9 @@ export function mountFolderContextMenu() {
     if (menu) {
       menu.style.display = "none";
     }
+
+    // 🔥 FIX: reset state
+    state.currentFolderMenu = null;
   });
 }
 
@@ -169,17 +181,13 @@ export function menuCreate() {
   createFolder();
 }
 
-/**
- * Panggil ini setelah folder list dirender ulang total dari server.
- * Supaya binding rename + context menu tetap aktif.
- */
 export function refreshFolderCrudBindings() {
   mountFolderRename();
   mountFolderContextMenu();
 }
 
 async function reloadSidebar() {
-  const res = await safeFetch("/folders"); // endpoint sidebar
+  const res = await safeFetch(`/folders?token_id=${state.tokenId}`);
   const html = await res.text();
 
   const parser = new DOMParser();
@@ -192,8 +200,8 @@ async function reloadSidebar() {
 
   sidebar.innerHTML = newSidebar.innerHTML;
 
-  // 🔥 REBIND SEMUA
   refreshFolderCrudBindings();
+
   if (window.mountFolderDrop) {
     window.mountFolderDrop();
   }

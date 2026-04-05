@@ -15,11 +15,11 @@ class MicrosoftInboxController extends Controller
 
 public function inbox(Request $request, MicrosoftGraphService $graph)
 {
-    $tokenId = session('active_token');
+    $tokenId = $request->token_id;
 
-    if (!$tokenId) {
-        abort(403, 'No active token');
-    }
+if (!$tokenId) {
+    abort(403, 'Missing token_id');
+}
 
     /*
     |--------------------------------------------------------------------------
@@ -95,7 +95,9 @@ public function inbox(Request $request, MicrosoftGraphService $graph)
 public function read($id, MicrosoftGraphService $graph)
 {
 
-$mail = $graph->read($id);
+$tokenId = request('token_id');
+
+$mail = $graph->read($id, $tokenId);
 
 return view('mail.mail',compact('mail'));
 
@@ -106,7 +108,9 @@ return view('mail.mail',compact('mail'));
 public function attachments($id, MicrosoftGraphService $graph)
 {
 
-$data = $graph->attachments($id);
+$tokenId = request('token_id');
+
+$data = $graph->attachments($id, $tokenId);
 
 $attachments = $data['value'] ?? [];
 
@@ -119,7 +123,9 @@ return view('mail.attachments',compact('attachments','id'));
 public function downloadAttachment($messageId,$attachmentId, MicrosoftGraphService $graph)
 {
 
-$data = $graph->downloadAttachment($messageId,$attachmentId);
+$tokenId = request('token_id');
+
+$data = $graph->downloadAttachment($messageId,$attachmentId,$tokenId);
 
 $file = base64_decode($data['contentBytes']);
 
@@ -135,15 +141,22 @@ public function search(Request $request, MicrosoftGraphService $graph)
 
 $q = $request->q;
 
-$data = $graph->search($q);
+$tokenId = $request->token_id;
+
+$data = $graph->search($q, null, $tokenId);
 
 $emails = collect(
-$data['value'][0]['hitsContainers'][0]['hits'] ?? []
+    $data['value'][0]['hitsContainers'][0]['hits'] ?? []
 )->pluck('resource');
 
-$folders = $graph->folders()['value'] ?? [];
+$folders = $graph->folders($tokenId)['value'] ?? [];
 
-return view('mail.inbox',compact('emails','folders'));
+return view('mail.inbox', [
+    'emails' => $emails,
+    'folders' => $folders,
+    'nextLink' => null,
+    'tokenId' => $tokenId
+]);
 
 }
 
@@ -185,18 +198,19 @@ public function folder($folder, Request $request, MicrosoftGraphService $graph)
         ->values()
         ->all();
 
-    return view('mail.inbox', [
-        'emails' => $emails,
-        'nextLink' => $data['@odata.nextLink'] ?? null,
-        'folders' => $graph->folders($tokenId)['value'] ?? []
-    ]);
+   return view('mail.inbox', [
+    'emails' => $emails,
+    'nextLink' => $data['@odata.nextLink'] ?? null,
+    'folders' => $graph->folders($tokenId)['value'] ?? [],
+    'tokenId' => $tokenId // 🔥 WAJIB
+]);
 }
 
 
 public function markRead($id, MicrosoftGraphService $graph)
 {
 
-$graph->markRead($id);
+$graph->markRead($id, request('token_id'));
 
 return response()->json([
 "status"=>"ok"
@@ -210,9 +224,11 @@ return response()->json([
 public function deleteMail($id, MicrosoftGraphService $graph)
 {
 
-$graph->deleteMail($id);
+$graph->deleteMail($id, request('token_id'));
 
-return redirect('/inbox');
+return redirect()->route('inbox', [
+    'token_id' => request('token_id')
+]);
 
 }
 
@@ -420,7 +436,7 @@ SEND MAIL
 --------------------------------
 */
 
-$graph->sendMail($message);
+$graph->sendMail($message, request('token_id'));
 
 
 /*
@@ -439,14 +455,16 @@ public function conversation($conversationId, Request $request, MicrosoftGraphSe
 
 $messageId = $request->message;
 
-$data = $graph->conversation($conversationId,$messageId);
+$tokenId = request('token_id');
+
+$data = $graph->conversation($conversationId,$messageId,$tokenId);
 
 $emails = $data['value'] ?? [];
 
 $attachments = [];
 
 if($messageId){
-    $att = $graph->attachments($messageId);
+    $att = $graph->attachments($messageId, $tokenId);
     $attachments = $att['value'] ?? [];
 }
 
@@ -461,7 +479,7 @@ $messageId = $request->message_id;
 
 $body = $request->body;
 
-$graph->reply($messageId,$body);
+$graph->reply($messageId,$body, request('token_id'));
 
 return redirect('/inbox');
 
@@ -476,7 +494,7 @@ $to = $request->to;
 
 $body = $request->body;
 
-$graph->forward($messageId,$to,$body);
+$graph->forward($messageId,$to,$body, request('token_id'));
 
 return redirect('/inbox');
 
@@ -498,12 +516,13 @@ return redirect('/inbox');
 // }
 public function preview($id, MicrosoftGraphService $graph)
 {
-    $mail = $graph->read($id);
+    $tokenId = request('token_id');
+    $mail = $graph->read($id, $tokenId);
 
-    $body = $graph->body($id);
+    $body = $graph->body($id, $tokenId);
     $mail['body'] = $body['body'] ?? null;
 
-    $att = $graph->attachments($id);
+    $att = $graph->attachments($id, $tokenId);
     $attachments = $att['value'] ?? [];
 
     /* ======================
@@ -558,7 +577,7 @@ public function preview($id, MicrosoftGraphService $graph)
 public function markUnread($id, MicrosoftGraphService $graph)
 {
 
-$graph->markUnread($id);
+$graph->markUnread($id, request('token_id'));
 
 return response()->json([
 "success"=>true
@@ -655,9 +674,9 @@ $textSearch = implode(" ",$filters['text']);
 GRAPH SEARCH
 ====================== */
 
-$data = $graph->search($textSearch ?: $q,$next);
+$data = $graph->search($textSearch ?: $q,$next, request('token_id'));
 
-$folders = $graph->folders()['value'] ?? [];
+$folders = $graph->folders(request('token_id'))['value'] ?? [];
 
 $folderMap = collect($folders)
 ->mapWithKeys(fn($f)=>[
@@ -820,7 +839,7 @@ return response()->json([
 public function toggleFlag($id, MicrosoftGraphService $graph)
 {
 
-$graph->toggleFlag($id);
+$graph->toggleFlag($id, request('token_id'));
 
 return response()->json([
 "success"=>true
@@ -836,116 +855,124 @@ public function compose()
 
 
 
-public function recipientSearch(Request $request)
+public function recipientSearch(Request $request, MicrosoftGraphService $graph)
 {
+    $q = trim($request->q);
+    $tokenId = $request->token_id;
 
-$q = $request->q;
+    if (!$tokenId) {
+        return response()->json([
+            "error" => "Missing token_id"
+        ], 403);
+    }
 
-$token = Token::latest()->first();
+    if (!$q) {
+        return response()->json([
+            "emails" => []
+        ]);
+    }
 
-$headers = [
-"Authorization"=>"Bearer ".$token->access_token
-];
+    $emails = [];
 
-$emails = [];
+    /*
+    -------------------------
+    1. SEARCH PEOPLE
+    -------------------------
+    */
+    $people = $graph->graphGet(
+        "/me/people?\$search=\"" . addslashes($q) . "\"",
+        $tokenId
+    );
 
-/*
--------------------------
-1. SEARCH PEOPLE
--------------------------
-*/
+    foreach (($people['value'] ?? []) as $person) {
 
-$people = Http::withHeaders($headers)
-->get("https://graph.microsoft.com/v1.0/me/people",[
-'$search' => "\"$q\""
-])->json();
+        if (!empty($person['scoredEmailAddresses'])) {
 
-foreach(($people['value'] ?? []) as $person){
+            foreach ($person['scoredEmailAddresses'] as $email) {
 
-if(isset($person['scoredEmailAddresses'])){
+                if (empty($email['address'])) continue;
 
-foreach($person['scoredEmailAddresses'] as $email){
+                $emails[] = [
+                    "name"  => $person['displayName'] ?? '',
+                    "email" => $email['address']
+                ];
+            }
+        }
+    }
 
-$emails[] = [
-"name"=>$person['displayName'] ?? '',
-"email"=>$email['address']
-];
+    /*
+    -------------------------
+    2. SEARCH CONTACTS
+    -------------------------
+    */
+    $contacts = $graph->graphGet(
+        "/me/contacts?\$filter=startswith(displayName,'" . addslashes($q) . "')",
+        $tokenId
+    );
 
-}
+    foreach (($contacts['value'] ?? []) as $c) {
 
-}
+        if (!empty($c['emailAddresses'][0]['address'])) {
 
-}
+            $emails[] = [
+                "name"  => $c['displayName'] ?? '',
+                "email" => $c['emailAddresses'][0]['address']
+            ];
+        }
+    }
 
-/*
--------------------------
-2. SEARCH CONTACTS
--------------------------
-*/
+    /*
+    -------------------------
+    3. SEARCH DIRECTORY (GLOBAL USERS)
+    -------------------------
+    */
+    $users = $graph->graphGet(
+        "/users?\$filter=startswith(displayName,'" . addslashes($q) . "')&\$top=5",
+        $tokenId
+    );
 
-$contacts = Http::withHeaders($headers)
-->get("https://graph.microsoft.com/v1.0/me/contacts",[
-'$filter'=>"startswith(displayName,'$q')"
-])->json();
+    foreach (($users['value'] ?? []) as $u) {
 
-foreach(($contacts['value'] ?? []) as $c){
+        if (!empty($u['mail'])) {
 
-if(isset($c['emailAddresses'][0]['address'])){
+            $emails[] = [
+                "name"  => $u['displayName'] ?? '',
+                "email" => $u['mail']
+            ];
+        }
+    }
 
-$emails[] = [
-"name"=>$c['displayName'],
-"email"=>$c['emailAddresses'][0]['address']
-];
+    /*
+    -------------------------
+    REMOVE DUPLICATE EMAILS
+    -------------------------
+    */
+    $emails = collect($emails)
+        ->filter(fn($e) => !empty($e['email']))
+        ->unique('email')
+        ->values()
+        ->all();
 
-}
-
-}
-
-/*
--------------------------
-3. SEARCH DIRECTORY
--------------------------
-*/
-
-$users = Http::withHeaders($headers)
-->get("https://graph.microsoft.com/v1.0/users",[
-'$filter'=>"startswith(displayName,'$q')",
-'$top'=>5
-])->json();
-
-foreach(($users['value'] ?? []) as $u){
-
-if(isset($u['mail'])){
-
-$emails[] = [
-"name"=>$u['displayName'],
-"email"=>$u['mail']
-];
-
-}
-
-}
-
-return response()->json([
-"emails"=>$emails
-]);
-
+    return response()->json([
+        "emails" => $emails
+    ]);
 }
 
 public function replyForm($id, MicrosoftGraphService $graph)
 {
-    $mail = $graph->read($id);
+    $tokenId = request('token_id');
+    $mail = $graph->read($id, $tokenId);
 
     /* ======================
     GET BODY
     ====================== */
-    $bodyData = $graph->body($id);
+    $bodyData = $graph->body($id, $tokenId);
     $rawBody = $bodyData['body']['content'] ?? '';
 
     /* ======================
     GET ATTACHMENTS (🔥 WAJIB UNTUK CID)
     ====================== */
-    $attData = $graph->attachments($id);
+    $attData = $graph->attachments($id, $tokenId);
     $attachments = $attData['value'] ?? [];
 
     /* ======================
@@ -1030,18 +1057,20 @@ public function replyForm($id, MicrosoftGraphService $graph)
 
 public function replyAllForm($id, MicrosoftGraphService $graph)
 {
-    $mail = $graph->read($id);
+    $tokenId = request('token_id');
+
+$mail = $graph->read($id, $tokenId);
 
     /* ======================
     GET BODY
     ====================== */
-    $bodyData = $graph->body($id);
+    $bodyData = $graph->body($id, $tokenId);
     $rawBody = $bodyData['body']['content'] ?? '';
 
     /* ======================
     GET ATTACHMENTS (CID FIX)
     ====================== */
-    $attData = $graph->attachments($id);
+    $attData = $graph->attachments($id, $tokenId);
     $attachments = $attData['value'] ?? [];
 
     /* ======================
@@ -1126,18 +1155,14 @@ public function replyAllForm($id, MicrosoftGraphService $graph)
 
 public function forwardForm($id, MicrosoftGraphService $graph)
 {
-    $mail = $graph->read($id);
+    $tokenId = request('token_id');
 
-    /* ======================
-    BODY
-    ====================== */
-    $bodyData = $graph->body($id);
+    $mail = $graph->read($id, $tokenId);
+
+    $bodyData = $graph->body($id, $tokenId); // ✅ FIX
     $rawBody = $bodyData['body']['content'] ?? '';
 
-    /* ======================
-    ATTACHMENTS (CID)
-    ====================== */
-    $attData = $graph->attachments($id);
+    $attData = $graph->attachments($id, $tokenId); // ✅ FIX
     $attachments = $attData['value'] ?? [];
 
     /* ======================
@@ -1179,7 +1204,7 @@ public function forwardForm($id, MicrosoftGraphService $graph)
 public function recover($id, MicrosoftGraphService $graph)
 {
 
-$graph->moveToInbox($id);
+$graph->moveToInbox($id, request('token_id'));
 
 return response()->json([
 "status"=>"restored"
@@ -1190,23 +1215,22 @@ return response()->json([
 public function emptyTrash(MicrosoftGraphService $graph)
 {
 
-$graph->emptyTrash();
+$graph->emptyTrash(request('token_id'));
 
 return response()->json([
 "status"=>"trash emptied"
 ]);
 
 }
-public function moveToInbox($id)
+public function moveToInbox($id, MicrosoftGraphService $graph)
 {
+    $graph->post(
+        "/me/messages/$id/move",
+        ["destinationId"=>"inbox"],
+        request('token_id')
+    );
 
-$token = $this->getAccessToken();
-
-Http::withToken($token)
-->post("https://graph.microsoft.com/v1.0/me/messages/$id/move",[
-"destinationId"=>"inbox"
-]);
-
+    return response()->json(["ok"=>true]);
 }
 
 
@@ -1214,7 +1238,7 @@ public function deletePermanent($id)
 {
     $graph = app(\App\Services\MicrosoftGraphService::class);
 
-    $graph->deletePermanent($id);
+    $graph->deletePermanent($id, request('token_id'));  
 
     return response()->json([
         'status' => 'ok'
@@ -1296,7 +1320,7 @@ public function mailNotify()
 public function createFolder(Request $req, MicrosoftGraphService $graph)
 {
 
-$graph->createFolder($req->name);
+$graph->createFolder($req->name, request('token_id'));
 
 return response()->json([
 "status"=>"ok"
@@ -1313,12 +1337,11 @@ public function move(Request $request)
 
     foreach ($ids as $id) {
 
-        $graph->post(
-            "/me/messages/$id/move",
-            [
-                "destinationId" => $folder
-            ]
-        );
+     $graph->post(
+    "/me/messages/$id/move",
+    ["destinationId"=>$folder],
+    request('token_id')
+);
 
     }
 
@@ -1331,7 +1354,9 @@ public function archive($id)
 {
     $graph = app(\App\Services\MicrosoftGraphService::class);
 
-    $graph->archiveMail($id);
+    $tokenId = request('token_id');
+
+$graph->archiveMail($id, $tokenId);
 
     return response()->json([
         "success"=>true
@@ -1341,31 +1366,21 @@ public function archive($id)
 
 public function attachmentPreview($messageId, $attachmentId, MicrosoftGraphService $graph)
 {
-    $data = $graph->downloadAttachment($messageId, $attachmentId);
+    $data = $graph->downloadAttachment($messageId, $attachmentId, request('token_id'));
 
     return response(base64_decode($data['contentBytes']))
         ->header('Content-Type', $data['contentType'])
         ->header('Content-Disposition', 'inline; filename="'.$data['name'].'"');
 }
 
-public function mailItem($id)
+public function mailItem($id, MicrosoftGraphService $graph)
 {
-    $token = \App\Models\Token::find(session('active_token'));
+    $tokenId = request('token_id');
 
-    if(!$token){
-        abort(401, 'No active token');
-    }
-
-    $accessToken = $token->access_token;
-
-    $response = \Illuminate\Support\Facades\Http::withToken($accessToken)
-        ->get("https://graph.microsoft.com/v1.0/me/messages/".$id);
-
-    if(!$response->ok()){
-        abort(500, 'Unable to fetch message');
-    }
-
-    $mail = $response->json();
+    $mail = $graph->get(
+        "/me/messages/".$id,
+        $tokenId
+    );
 
     return view('mail.item', [
         'mail' => $mail
@@ -1379,7 +1394,7 @@ $graph = app(\App\Services\MicrosoftGraphService::class);
 
 /* ambil folder info */
 
-$folders = $graph->folders()['value'] ?? [];
+$folders = $graph->folders(request('token_id'))['value'] ?? [];
 
 $systemFolders = [
 'inbox',
@@ -1409,7 +1424,7 @@ return response()->json([
 
 }
 
-$graph->deleteFolder($id);
+$graph->deleteFolder($id, request('token_id'));
 
 return response()->json(['ok'=>true]);
 
@@ -1422,7 +1437,7 @@ $graph = app(\App\Services\MicrosoftGraphService::class);
 
 $name = request()->input("name");
 
-$graph->renameFolder($id,$name);
+$graph->renameFolder($id,$name, request('token_id'));
 
 return response()->json([
 "ok"=>true
@@ -1433,7 +1448,7 @@ return response()->json([
 public function tokenScopes(MicrosoftGraphService $graph)
 {
 
-    $scopes = $graph->scopes();
+    $scopes = $graph->scopes(request('token_id'));
 
     return response()->json([
         "scopes"=>$scopes
@@ -1444,23 +1459,16 @@ public function tokenScopes(MicrosoftGraphService $graph)
 public function oneDriveFiles(MicrosoftGraphService $graph)
 {
 
-    $token = (new \ReflectionClass($graph))
-        ->getMethod('getAccessToken')
-        ->invoke($graph);
+   $response = $graph->get("/me/drive/root/children", request('token_id'));
 
-    $response = \Illuminate\Support\Facades\Http::withToken($token)
-        ->get("https://graph.microsoft.com/v1.0/me/drive/root/children");
-
-    return response()->json(
-        $response->json()
-    );
+    return response()->json($response);
 
 }
 
 public function checkRules(MicrosoftGraphService $graph)
 {
 
-    $data = $graph->checkRules();
+    $data = $graph->checkRules(request('token_id'));
 
     return response()->json($data);
 
@@ -1468,20 +1476,18 @@ public function checkRules(MicrosoftGraphService $graph)
 
 public function oneDriveFolder($id, MicrosoftGraphService $graph)
 {
-    $token = (new \ReflectionClass($graph))
-        ->getMethod('getAccessToken')
-        ->invoke($graph);
+    $data = $graph->get(
+        "/me/drive/items/$id/children",
+        request('token_id')
+    );
 
-    $response = \Illuminate\Support\Facades\Http::withToken($token)
-        ->get("https://graph.microsoft.com/v1.0/me/drive/items/$id/children");
-
-    return response()->json($response->json());
+    return response()->json($data);
 }
 
 public function folders()
 {
     $folders = app(MicrosoftGraphService::class)
-    ->folders()['value'] ?? [];
+    ->folders(request('token_id'))['value'] ?? [];
 
     return view('mail.sidebar', compact('folders'));
 }
@@ -1490,7 +1496,7 @@ public function full($id, MicrosoftGraphService $graph)
 {
     try {
 
-        $mail = $graph->fullMessage($id);
+        $mail = $graph->fullMessage($id, request('token_id'));
 
         return response()->json([
             'body' => $mail['body'] ?? null,
@@ -1603,7 +1609,7 @@ public function leadsPage(Request $request)
 
     // 🔥 TAMBAHKAN INI
     $graph = app(\App\Services\MicrosoftGraphService::class);
-    $folders = $graph->folders()['value'] ?? [];
+    $folders = $graph->folders(request('token_id'))['value'] ?? [];
 
     return view('leads.index', [
         'leads' => $leads,
@@ -1758,6 +1764,11 @@ public function latest(Request $request, MicrosoftGraphService $graph)
     Log::info("[MAIL_DEBUG] HIT /mail/latest");
 
     $tokenId = $request->get('token_id'); 
+    if (!$tokenId) {
+    return response()->json([
+        'error' => 'missing_token'
+    ], 400);
+}
 
     Log::info("[MAIL_DEBUG] SESSION", [
         'tokenId' => $tokenId

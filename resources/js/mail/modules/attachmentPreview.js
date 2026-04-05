@@ -2,7 +2,7 @@ import { state } from "../core/state";
 import { qs } from "../core/dom";
 
 export function previewAttachment(messageId, attachmentId, type = "") {
-  const url = `/mail/attachment/${messageId}/${attachmentId}`;
+  const url = `/mail/attachment/${messageId}/${attachmentId}?token_id=${state.tokenId}`;
   const preview = qs(".mail-preview");
   if (!preview) return;
 
@@ -33,6 +33,7 @@ export function previewAttachment(messageId, attachmentId, type = "") {
     </div>
   `;
 }
+
 export function closeAttachmentPreview() {
   const preview = qs(".mail-preview");
   if (!preview) return;
@@ -51,6 +52,9 @@ export function mountAttachmentPreviewHotkeys() {
   });
 }
 
+/* =========================
+   VIEWER MODE
+========================= */
 
 let viewerAttachments = [];
 let currentAttachment = 0;
@@ -58,7 +62,7 @@ let currentAttachment = 0;
 export function openAttachmentViewer(messageId, list, index) {
   viewerAttachments = list.map(file => ({
     id: file.id,
-    messageId: messageId,
+    messageId,
     name: file.name,
     type: file.contentType
   }));
@@ -77,16 +81,16 @@ function renderAttachment() {
   const file = viewerAttachments[currentAttachment];
   if (!file) return;
 
-  const url = `/mail/attachment/${file.messageId}/${file.id}`;
+  const url = `/mail/attachment/${file.messageId}/${file.id}?token_id=${state.tokenId}`;
 
   document.getElementById("attachmentTitle").innerText = file.name;
 
   const body = document.getElementById("attachmentBody");
 
-  if (file.type.includes("image")) {
+  if (file.type?.includes("image")) {
     body.innerHTML = `<img src="${url}" style="max-width:90%;max-height:90%">`;
   } else {
-    body.innerHTML = `<iframe src="${url}"></iframe>`;
+    body.innerHTML = `<iframe src="${url}" style="width:100%;height:100%;border:none"></iframe>`;
   }
 }
 

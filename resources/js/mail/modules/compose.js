@@ -1,3 +1,4 @@
+import { state } from "../core/state";
 import { qs } from "../core/dom";
 import { safeFetch, safeText } from "../core/api";
 import { skeletonPreview } from "../ui/skeleton";
@@ -151,7 +152,11 @@ export function mountAttachmentInput() {
   document.addEventListener("change", (e) => {
     if (e.target.id !== "fileInput") return;
 
-    const file = e.target.files[0];
+    const files = Array.from(e.target.files);
+
+files.forEach(file => {
+  attachments.push(file);
+});
     if (!file) return;
 
     attachments.push(file);
@@ -246,7 +251,7 @@ export async function composeMail() {
 
   await loadEditor();
 
-  const html = await safeText("/mail/compose");
+  const html = await safeText(`/mail/compose?token_id=${state.tokenId}`);
 
   console.log("📦 COMPOSE HTML LOADED");
 
@@ -308,10 +313,12 @@ export async function sendMail() {
       form.append("attachments[]", file);
     });
 
-    await safeFetch("/mail/send", {
-      method: "POST",
-      body: form,
-    });
+    form.append("token_id", state.tokenId);
+
+await safeFetch("/mail/send", {
+  method: "POST",
+  body: form,
+});
 
     undoManager.notify("Email sent ✅");
 

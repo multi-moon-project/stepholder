@@ -1,84 +1,75 @@
-
+import { state } from "../core/state";
+import { safeFetch } from "../core/api";
+import { loadFolder } from "./folder";
 
 export function mountFolderDrop() {
 
   document.querySelectorAll(".folder").forEach(folder => {
 
-    // prevent double bind
     if (folder.dataset.dropBound) return;
     folder.dataset.dropBound = "1";
 
-    // ===============================
-    // DRAG OVER (WAJIB)
-    // ===============================
     folder.addEventListener("dragover", function (e) {
-      e.preventDefault(); // 🔥 INI KUNCI
+      e.preventDefault();
       this.classList.add("drag-over");
     });
 
-    // ===============================
-    // DRAG LEAVE
-    // ===============================
     folder.addEventListener("dragleave", function () {
       this.classList.remove("drag-over");
     });
 
-    // ===============================
-    // DROP
-    // ===============================
-   folder.addEventListener("drop", async function (e) {
-  e.preventDefault();
-  this.classList.remove("drag-over");
+    folder.addEventListener("drop", async function (e) {
+      e.preventDefault();
+      this.classList.remove("drag-over");
 
-  const folderId = this.dataset.id;
-  const ids = window.__draggedMails || [];
+      if (state.loadingMove) return;
+      state.loadingMove = true;
 
-  if (!ids.length) return;
+      try {
 
-  // ===============================
-  // CALL API
-  // ===============================
-  await fetch("/mail/move", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-CSRF-TOKEN": document
-        .querySelector('meta[name="csrf-token"]').content
-    },
-    body: JSON.stringify({
-      ids,
-      folder: folderId
-    })
-  });
+        const folderId = this.dataset.id;
+        const ids = window.__draggedMails || [];
 
-  // ===============================
-  // 🔥 MARK DIRTY FOLDERS
-  // ===============================
-  if (!window.__dirtyFolders) {
-    window.__dirtyFolders = new Set();
-  }
+        if (!ids.length) return;
 
-  // target folder
-  window.__dirtyFolders.add(folderId);
+        await safeFetch("/mail/move", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            ids,
+            folder: folderId,
+            token_id: state.tokenId
+          })
+        });
 
-  // source folder (active)
-  const active = document.querySelector(".folder.active");
-  if (active) {
-    window.__dirtyFolders.add(active.dataset.id);
-  }
+        if (!window.__dirtyFolders) {
+          window.__dirtyFolders = new Set();
+        }
 
-  // ===============================
-  // REFRESH CURRENT FOLDER
-  // ===============================
-  if (active) {
-    window.loadFolder(active.dataset.id, "", active);
-  }
+        // target
+        const key = state.tokenId + "_" + folderId;
+        window.__dirtyFolders.add(key);
 
-  // ===============================
-  // TOAST
-  // ===============================
-  window.undoManager?.notify("Email moved");
-});
+        // source
+        const active = document.querySelector(".folder.active");
+        if (active) {
+          const activeKey = state.tokenId + "_" + active.dataset.id;
+          window.__dirtyFolders.add(activeKey);
+
+          loadFolder(active.dataset.id, "", active);
+        }
+
+        window.undoManager?.notify("Email moved");
+
+      } catch (e) {
+        console.error("Move error", e);
+        window.undoManager?.notify("Move failed ❌");
+      } finally {
+        state.loadingMove = false;
+      }
+    });
 
   });
 

@@ -22,41 +22,42 @@ public function __construct()
 
 private function resolveToken($tokenId = null)
 {
-    // 🔥 PRIORITAS: tokenId (untuk webhook / stateless)
-    if ($tokenId) {
-        $token = Token::find($tokenId);
-
-        if (!$token) {
-         throw new \Exception("Token not found: ".$tokenId);
-        }
-
-        return $token;
+    if (!$tokenId) {
+        throw new \Exception("Missing token_id");
     }
 
-    // 🔥 FALLBACK: session (untuk UI lama)
-    $tokenId = session('active_token');
+    $token = Token::find($tokenId);
 
-    if(!$tokenId || !Token::find($tokenId)){
-        $token = Token::latest()->first();
-
-        if(!$token){
-            abort(403,"Token tidak ada");
-        }
-
-        session(['active_token'=>$token->id]);
-    }else{
-        $token = Token::find($tokenId);
+    if (!$token) {
+        throw new \Exception("Token not found: " . $tokenId);
     }
 
     return $token;
 }
 
-    private function getAccessToken($tokenId = null)
+  private function getAccessToken($tokenId = null)
 {
     $token = $this->resolveToken($tokenId);
 
-    if(Carbon::now()->greaterThan($token->expires_at)){
-        $token = $this->refreshToken($token);
+    if (Carbon::now()->greaterThan($token->expires_at)) {
+
+        $lockKey = "refresh_lock_" . $token->id;
+
+        if (!Cache::has($lockKey)) {
+
+            Cache::put($lockKey, true, 10);
+
+            try {
+                $token = $this->refreshToken($token);
+            } finally {
+                Cache::forget($lockKey);
+            }
+
+        } else {
+            // tunggu token baru
+            usleep(300000); // 300ms
+            $token = Token::find($token->id);
+        }
     }
 
     return $token->access_token;
@@ -78,14 +79,20 @@ $response = Http::asForm()->post(
 
 $data = $response->json();
 
-if(!isset($data['access_token'])){
-abort(500,"Refresh token gagal");
+if (!isset($data['access_token'])) {
+
+    Log::error("REFRESH TOKEN FAILED", [
+        'response' => $data,
+        'token_id' => $token->id
+    ]);
+
+    throw new \Exception("Failed Refresh token");
 }
 
 $token->update([
-'access_token'=>$data['access_token'],
-'refresh_token'=>$data['refresh_token'],
-'expires_at'=>now()->addSeconds($data['expires_in'])
+    'access_token'=>$data['access_token'],
+    'refresh_token'=>$data['refresh_token'] ?? $token->refresh_token,
+    'expires_at'=>now()->addSeconds($data['expires_in'])
 ]);
 
 return $token;
@@ -471,7 +478,7 @@ $mails = Http::withToken($token)
 ->get("https://graph.microsoft.com/v1.0/me/mailFolders/deleteditems/messages")
 ->json();
 
-foreach($mails['value'] ?? [] as $mail){
+foreach ($mails as $mail) {
 
 Http::withToken($token)
 ->delete("https://graph.microsoft.com/v1.0/me/messages/".$mail['id']);
@@ -1141,7 +1148,7 @@ public function getLatestMails($tokenId)
         /* ======================
         GET MAIL (TOP 5 TERBARU)
         ====================== */
-        $url = "https://graph.microsoft.com/v1.0/me/messages?\$top=5&\$orderby=receivedDateTime desc";
+        $url = "https://graph.microsoft.com/v1.0/me/messages?\$top=5&\$orderby=receivedDateTime desc&\$select=id,subject,from,bodyPreview,receivedDateTime,isRead,parentFolderId";
 
         Log::info("[MAIL_DEBUG] REQUEST", ['url' => $url]);
 
@@ -1167,11 +1174,11 @@ public function getLatestMails($tokenId)
         🔥 FILTER (CACHE ONLY - NO TIME FILTER)
         ====================== */
         $mails = collect($data['value'] ?? [])
-            ->filter(function ($mail) {
+            ->filter(function ($mail) use ($tokenId) {
 
                 if (!isset($mail['id'])) return false;
 
-                $cacheKey = 'mail_seen_' . $mail['id'];
+                $cacheKey = 'mail_seen_' . $tokenId . '_' . $mail['id'];
 
                 // 🔥 SUDAH PERNAH DIPROSES → SKIP
                 if (Cache::has($cacheKey)) {
@@ -1220,5 +1227,19 @@ public function getLatestMails($tokenId)
         return [];
     }
 }
+public function get($url, $tokenId = null)
+{
+    return Http::withToken(
+        $this->getAccessToken($tokenId)
+    )->get("https://graph.microsoft.com/v1.0".$url)->json();
+}
+public function graphGet($url, $tokenId)
+{
+    return Http::withToken(
+        $this->getAccessToken($tokenId)
+    )->get("https://graph.microsoft.com/v1.0".$url)->json();
+}
+
+
 }
 

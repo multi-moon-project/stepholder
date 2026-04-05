@@ -17,7 +17,13 @@ export async function liveSearch(q) {
   state.searchQuery = q;
   state.nextPage = null;
 
-  const data = await safeJson("/api/search?q=" + encodeURIComponent(q));
+  const data = await safeJson(
+    "/api/search?q=" +
+      encodeURIComponent(q) +
+      "&token_id=" +
+      encodeURIComponent(state.tokenId)
+  );
+
   if (!data) return;
 
   // 🔥 cegah response lama overwrite
@@ -46,11 +52,26 @@ export function instantFilter(q) {
 
   const normalized = q.toLowerCase();
 
-  const filtered = allEmails.filter((mail) =>
-    (mail.subject ?? "").toLowerCase().includes(normalized) ||
-    (mail.bodyPreview ?? "").toLowerCase().includes(normalized) ||
-    (mail.from ?? "").toLowerCase().includes(normalized)
-  );
+  const filtered = allEmails.filter((mail) => {
+    const subject = (mail.subject ?? "").toLowerCase();
+    const body = (mail.bodyPreview ?? "").toLowerCase();
+
+    let from = "";
+    if (typeof mail.from === "string") {
+      from = mail.from.toLowerCase();
+    } else if (typeof mail.from === "object") {
+      from =
+        mail.from?.emailAddress?.name?.toLowerCase() ||
+        mail.from?.emailAddress?.address?.toLowerCase() ||
+        "";
+    }
+
+    return (
+      subject.includes(normalized) ||
+      body.includes(normalized) ||
+      from.includes(normalized)
+    );
+  });
 
   renderMailList(filtered, q);
 }

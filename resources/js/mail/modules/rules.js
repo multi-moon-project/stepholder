@@ -1,4 +1,5 @@
 import { state } from "../core/state";
+import { safeFetch } from "../core/api";
 
 /* ======================
 HELPER: EXTRACT EMAIL
@@ -6,23 +7,19 @@ HELPER: EXTRACT EMAIL
 function extractEmail(raw) {
   if (!raw) return "";
 
-  // Microsoft Graph object
   if (typeof raw === "object") {
     const email = raw.emailAddress?.address || raw.address || "";
     return String(email).toLowerCase().trim();
   }
 
-  // String format
   if (typeof raw === "string") {
     const str = raw.toLowerCase().trim();
 
-    // Ambil email di dalam <>
     const bracketMatch = str.match(/<\s*([^>]+?)\s*>/);
     if (bracketMatch && bracketMatch[1]) {
       return bracketMatch[1].trim();
     }
 
-    // Fallback: ambil pola email di mana pun
     const emailMatch = str.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
     if (emailMatch && emailMatch[0]) {
       return emailMatch[0].toLowerCase().trim();
@@ -40,13 +37,11 @@ HELPER: EXTRACT NAME
 function extractName(raw) {
   if (!raw) return "";
 
-  // Microsoft Graph object
   if (typeof raw === "object") {
     const name = raw.emailAddress?.name || raw.name || "";
     return String(name).toLowerCase().trim();
   }
 
-  // String format
   if (typeof raw === "string") {
     return raw
       .toLowerCase()
@@ -59,41 +54,24 @@ function extractName(raw) {
 }
 
 /* ======================
-HELPER: DEBUG LOGGER
+DEBUG (TIDAK DIUBAH)
 ====================== */
 function debugRuleMail(mail, rules, normalized) {
   console.group("RULE ENGINE DEBUG");
   console.log("MAIL RAW:", mail);
-  console.log("MAIL FROM RAW:", mail?.from);
-  console.log("MAIL FROM TYPE:", typeof mail?.from);
-  console.log("NORMALIZED FROM EMAIL:", normalized.fromEmail);
-  console.log("NORMALIZED FROM NAME:", normalized.fromName);
-  console.log("NORMALIZED SUBJECT:", normalized.subject);
-  console.log("NORMALIZED BODY PREVIEW:", normalized.body.slice(0, 200));
+  console.log("NORMALIZED:", normalized);
   console.log("RULES:", rules);
   console.groupEnd();
 }
 
 function debugRuleCheck(rule, debugData) {
   console.group(`RULE CHECK [${rule.id ?? "no-id"}]`);
-  console.log("RULE RAW:", rule);
-  console.log("CONDITION TYPE:", rule.conditionType);
-  console.log("CONDITION VALUE RAW:", rule.conditionValue);
-  console.log("CONDITION VALUE NORMALIZED:", debugData.value);
-  console.log("FROM EMAIL:", debugData.fromEmail);
-  console.log("FROM NAME:", debugData.fromName);
-  console.log("SUBJECT:", debugData.subject);
-  console.log("BODY SAMPLE:", debugData.body.slice(0, 200));
-  console.log("EMAIL MATCH:", debugData.emailMatch);
-  console.log("NAME MATCH:", debugData.nameMatch);
-  console.log("SUBJECT MATCH:", debugData.subjectMatch);
-  console.log("BODY MATCH:", debugData.bodyMatch);
-  console.log("FINAL MATCH:", debugData.match);
+  console.log(debugData);
   console.groupEnd();
 }
 
 /* ======================
-OPEN / CLOSE SETTINGS
+SETTINGS UI
 ====================== */
 export function openSettings() {
   const el = document.getElementById("settingsOverlay");
@@ -101,8 +79,8 @@ export function openSettings() {
 
   el.style.display = "flex";
 
-  loadRules();          // render UI
-  loadRulesToState();   // load engine
+  loadRules();
+  loadRulesToState();
 }
 
 export function closeSettings() {
@@ -113,7 +91,7 @@ export function closeSettings() {
 }
 
 /* ======================
-LOAD RULES (HTML VIEW)
+LOAD RULES (HTML)
 ====================== */
 export async function loadRules() {
   const el = document.getElementById("settingsContent");
@@ -122,7 +100,10 @@ export async function loadRules() {
   el.innerHTML = "Loading...";
 
   try {
-    const res = await fetch("/settings/rules");
+    const res = await safeFetch(
+      "/settings/rules?token_id=" + encodeURIComponent(state.tokenId)
+    );
+
     const html = await res.text();
     el.innerHTML = html;
   } catch (e) {
@@ -132,11 +113,14 @@ export async function loadRules() {
 }
 
 /* ======================
-LOAD RULES TO STATE (ENGINE)
+LOAD RULES TO STATE
 ====================== */
 export async function loadRulesToState() {
   try {
-    const res = await fetch("/rules/json");
+    const res = await safeFetch(
+      "/rules/json?token_id=" + encodeURIComponent(state.tokenId)
+    );
+
     const data = await res.json();
 
     state.rules = (data.rules || []).map(r => ({
@@ -148,8 +132,6 @@ export async function loadRulesToState() {
       folder: r.action_folder
     }));
 
-    console.log("RULES LOADED:", state.rules);
-
   } catch (e) {
     console.error("Failed load rules", e);
     state.rules = [];
@@ -157,37 +139,35 @@ export async function loadRulesToState() {
 }
 
 /* ======================
-CREATE RULE
+CREATE / UPDATE RULE
 ====================== */
 export async function createRule() {
 
-  const id = document.getElementById("editingRuleId").value;
+  const id = document.getElementById("editingRuleId")?.value;
 
   const payload = {
-    displayName: document.getElementById("ruleName").value,
-    conditionType: document.getElementById("conditionType").value,
-    conditionValue: document.getElementById("conditionValue").value,
-    delete: document.getElementById("ruleDelete").checked,
-    read: document.getElementById("ruleRead").checked,
-    folder: document.getElementById("ruleFolder").value
+    displayName: document.getElementById("ruleName")?.value,
+    conditionType: document.getElementById("conditionType")?.value,
+    conditionValue: document.getElementById("conditionValue")?.value,
+    delete: document.getElementById("ruleDelete")?.checked,
+    read: document.getElementById("ruleRead")?.checked,
+    folder: document.getElementById("ruleFolder")?.value
   };
 
   const url = id
-    ? `/settings/rules/${id}`   // UPDATE
-    : `/settings/rules`;        // CREATE
+    ? `/settings/rules/${id}`
+    : `/settings/rules`;
 
   const method = id ? "PUT" : "POST";
 
-  await fetch(url, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      "X-CSRF-TOKEN": document
-        .querySelector('meta[name="csrf-token"]')
-        .getAttribute("content")
-    },
-    body: JSON.stringify(payload)
-  });
+  await safeFetch(
+    url + "?token_id=" + encodeURIComponent(state.tokenId),
+    {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }
+  );
 
   loadRules();
   loadRulesToState();
@@ -200,14 +180,10 @@ export async function deleteRule(id) {
   if (!confirm("Delete this rule?")) return;
 
   try {
-    await fetch(`/settings/rules/${id}`, {
-      method: "DELETE",
-      headers: {
-        "X-CSRF-TOKEN": document
-          .querySelector('meta[name="csrf-token"]')
-          .getAttribute("content")
-      }
-    });
+    await safeFetch(
+      `/settings/rules/${id}?token_id=${state.tokenId}`,
+      { method: "DELETE" }
+    );
 
     await loadRules();
     await loadRulesToState();
@@ -228,7 +204,7 @@ export function applyRules(mail, rules = []) {
     moveTo: null
   };
 
-  if (!rules || rules.length === 0) return actions;
+  if (!rules.length) return actions;
 
   const fromEmail = extractEmail(mail?.from);
   const fromName = extractName(mail?.from);
@@ -247,8 +223,8 @@ export function applyRules(mail, rules = []) {
   });
 
   for (const rule of rules) {
-    let match = false;
 
+    let match = false;
     const value = String(rule?.conditionValue || "").toLowerCase().trim();
 
     let emailMatch = false;
@@ -256,32 +232,20 @@ export function applyRules(mail, rules = []) {
     let subjectMatch = false;
     let bodyMatch = false;
 
-    /* ===== SENDER ===== */
     if (rule.conditionType === "senderContains") {
-      emailMatch = !!fromEmail && fromEmail.includes(value);
-      nameMatch = !!fromName && fromName.includes(value);
-
-      if (emailMatch || nameMatch) {
-        match = true;
-      }
+      emailMatch = fromEmail.includes(value);
+      nameMatch = fromName.includes(value);
+      match = emailMatch || nameMatch;
     }
 
-    /* ===== SUBJECT ===== */
     if (rule.conditionType === "subjectContains") {
-      subjectMatch = !!subject && subject.includes(value);
-
-      if (subjectMatch) {
-        match = true;
-      }
+      subjectMatch = subject.includes(value);
+      match = subjectMatch;
     }
 
-    /* ===== BODY ===== */
     if (rule.conditionType === "bodyContains") {
-      bodyMatch = !!body && body.includes(value);
-
-      if (bodyMatch) {
-        match = true;
-      }
+      bodyMatch = body.includes(value);
+      match = bodyMatch;
     }
 
     debugRuleCheck(rule, {
@@ -297,49 +261,29 @@ export function applyRules(mail, rules = []) {
       match
     });
 
-    /* ===== APPLY ACTION ===== */
     if (match) {
-      console.warn("RULE MATCHED ✅", {
-        rule,
-        mail,
-        actionsBefore: { ...actions }
-      });
 
       if (rule.delete) actions.delete = true;
       if (rule.read) actions.read = true;
       if (rule.folder) actions.moveTo = rule.folder;
 
-      console.warn("RULE ACTIONS RESULT ✅", actions);
       break;
     }
-  }
-
-  if (!actions.delete && !actions.read && !actions.moveTo) {
-    console.warn("NO RULE MATCHED ❌", {
-      mail,
-      normalized: {
-        fromEmail,
-        fromName,
-        subject,
-        bodySample: body.slice(0, 200)
-      },
-      rules
-    });
   }
 
   return actions;
 }
 
+/* ======================
+RESET FORM
+====================== */
 export function newRule() {
   document.getElementById("editingRuleId").value = "";
-
   document.getElementById("ruleName").value = "";
   document.getElementById("conditionValue").value = "";
-
   document.getElementById("ruleDelete").checked = false;
   document.getElementById("ruleRead").checked = false;
   document.getElementById("ruleFolder").value = "";
-
   document.getElementById("ruleEditorTitle").innerText = "Create rule";
 }
 

@@ -1,8 +1,13 @@
+import { state } from "../core/state";
+import { safeFetch } from "../core/api";
+
 let oneDriveHistory = [];
 let oneDriveCache = {};
 
 export function openOneDrive() {
   const panel = document.getElementById("onedrivePanel");
+  if (!panel) return;
+
   panel.style.display = "flex";
 
   oneDriveHistory = [];
@@ -11,16 +16,26 @@ export function openOneDrive() {
 }
 
 export function closeOneDrive() {
-  document.getElementById("onedrivePanel").style.display = "none";
+  const panel = document.getElementById("onedrivePanel");
+  if (panel) panel.style.display = "none";
 }
 
+/*
+========================================
+LOAD ROOT
+========================================
+*/
 async function loadOneDriveFiles() {
+
   if (oneDriveCache["root"]) {
     renderOneDriveFiles(oneDriveCache["root"]);
     return;
   }
 
-  const res = await fetch("/onedrive/files");
+  const res = await safeFetch(
+    "/onedrive/files?token_id=" + encodeURIComponent(state.tokenId)
+  );
+
   const files = await res.json();
 
   oneDriveCache["root"] = files;
@@ -28,8 +43,15 @@ async function loadOneDriveFiles() {
   renderOneDriveFiles(files);
 }
 
+/*
+========================================
+LOAD FOLDER
+========================================
+*/
 async function loadOneDriveFolder(id, pushHistory = true) {
+
   const container = document.getElementById("onedriveFiles");
+  if (!container) return;
 
   if (pushHistory) oneDriveHistory.push(id);
 
@@ -40,7 +62,13 @@ async function loadOneDriveFolder(id, pushHistory = true) {
 
   container.innerHTML = "Loading...";
 
-  const res = await fetch("/onedrive/folder/" + id);
+  const res = await safeFetch(
+    "/onedrive/folder/" +
+    encodeURIComponent(id) +
+    "?token_id=" +
+    encodeURIComponent(state.tokenId)
+  );
+
   const files = await res.json();
 
   oneDriveCache[id] = files;
@@ -48,7 +76,13 @@ async function loadOneDriveFolder(id, pushHistory = true) {
   renderOneDriveFiles(files);
 }
 
+/*
+========================================
+BACK
+========================================
+*/
 function goOneDriveBack() {
+
   oneDriveHistory.pop();
 
   if (!oneDriveHistory.length) {
@@ -60,7 +94,13 @@ function goOneDriveBack() {
   loadOneDriveFolder(last, false);
 }
 
+/*
+========================================
+RENDER
+========================================
+*/
 function renderOneDriveFiles(files) {
+
   const container = document.getElementById("onedriveFiles");
   if (!container) return;
 
@@ -68,7 +108,7 @@ function renderOneDriveFiles(files) {
 
   /*
   =========================
-  BACK BUTTON (ALWAYS SHOW)
+  BACK BUTTON
   =========================
   */
   const back = document.createElement("div");
@@ -112,6 +152,7 @@ function renderOneDriveFiles(files) {
   =========================
   */
   list.forEach(file => {
+
     let icon = "fa-file";
 
     if (file.folder) {
@@ -136,12 +177,20 @@ function renderOneDriveFiles(files) {
   });
 }
 
+/*
+========================================
+OPEN FILE
+========================================
+*/
 function openOneDriveFile(file) {
+
   if (file.folder) {
     loadOneDriveFolder(file.id);
     return;
   }
 
   const url = file["@microsoft.graph.downloadUrl"];
-  window.open(url);
+  if (url) {
+    window.open(url);
+  }
 }
