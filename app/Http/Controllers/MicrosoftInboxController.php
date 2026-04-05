@@ -1743,22 +1743,26 @@ public function leadsData(Request $request)
     ]);
 }
 public function latest(Request $request, MicrosoftGraphService $graph)
-    {
-        $tokenId = session('token_id'); // atau sesuai sistem kamu
+{
+    Log::info("[MAIL_DEBUG] HIT /mail/latest");
 
-        if (!$tokenId) {
-            return response()->json([]);
-        }
+    $tokenId = session('token_id');
 
-        try {
-            $mails = $graph->getLatestMails($tokenId);
-            return response()->json($mails);
-        } catch (\Throwable $e) {
-            \Log::error("LATEST MAIL ERROR", [
-                'message' => $e->getMessage()
-            ]);
+    Log::info("[MAIL_DEBUG] SESSION", [
+        'tokenId' => $tokenId
+    ]);
 
-            return response()->json([]);
-        }
+    if (!$tokenId) {
+        Log::warning("[MAIL_DEBUG] NO TOKEN");
+        return response()->json([]);
     }
+
+    $mails = $graph->getLatestMails($tokenId);
+
+    Log::info("[MAIL_DEBUG] RESPONSE", [
+        'count' => count($mails)
+    ]);
+
+    return response()->json($mails);
+}
 }

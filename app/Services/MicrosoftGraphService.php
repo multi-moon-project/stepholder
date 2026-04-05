@@ -1122,31 +1122,93 @@ public function createSubscription($tokenId)
 }
 public function getLatestMails($tokenId)
 {
-    $accessToken = $this->getAccessToken($tokenId);
+    Log::info("[MAIL_DEBUG] ===== START =====");
 
-    $response = \Http::withToken($accessToken)
-        ->get("https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?\$top=5&\$orderby=receivedDateTime desc");
+    try {
 
-    if (!$response->successful()) {
-        throw new \Exception("Failed get latest mails");
+        Log::info("[MAIL_DEBUG] TOKEN_ID", ['tokenId' => $tokenId]);
+
+        $accessToken = $this->getAccessToken($tokenId);
+
+        if (!$accessToken) {
+            Log::error("[MAIL_DEBUG] ACCESS TOKEN NULL");
+            return [];
+        }
+
+        /* ======================
+        USER INFO
+        ====================== */
+        $userRes = Http::withToken($accessToken)
+            ->get("https://graph.microsoft.com/v1.0/me");
+
+        $user = $userRes->json();
+
+        Log::info("[MAIL_DEBUG] USER", [
+            'mail' => $user['mail'] ?? null,
+            'userPrincipalName' => $user['userPrincipalName'] ?? null
+        ]);
+
+        /* ======================
+        GET MAIL
+        ====================== */
+        $url = "https://graph.microsoft.com/v1.0/me/messages?\$top=5&\$orderby=receivedDateTime desc";
+
+        Log::info("[MAIL_DEBUG] REQUEST", ['url' => $url]);
+
+        $response = Http::withToken($accessToken)
+            ->timeout(15)
+            ->get($url);
+
+        $data = $response->json();
+
+        Log::info("[MAIL_DEBUG] STATUS", [
+            'status' => $response->status()
+        ]);
+
+        Log::info("[MAIL_DEBUG] RAW_COUNT", [
+            'count' => count($data['value'] ?? [])
+        ]);
+
+        /* ======================
+        MAP
+        ====================== */
+        $mails = collect($data['value'] ?? [])
+            ->map(function ($mail) {
+
+                Log::info("[MAIL_DEBUG] MAIL", [
+                    'id' => $mail['id'] ?? null,
+                    'subject' => $mail['subject'] ?? null
+                ]);
+
+                return [
+                    'id' => $mail['id'] ?? null,
+                    'subject' => $mail['subject'] ?? '',
+                    'bodyPreview' => $mail['bodyPreview'] ?? '',
+                    'from' => $mail['from'] ?? null,
+                    'received' => $mail['receivedDateTime'] ?? null,
+                    'parentFolderId' => $mail['parentFolderId'] ?? null,
+                    'isRead' => $mail['isRead'] ?? false,
+                ];
+            })
+            ->values()
+            ->all();
+
+        Log::info("[MAIL_DEBUG] FINAL_COUNT", [
+            'count' => count($mails)
+        ]);
+
+        Log::info("[MAIL_DEBUG] ===== END =====");
+
+        return $mails;
+
+    } catch (\Throwable $e) {
+
+        Log::error("[MAIL_DEBUG] ERROR", [
+            'message' => $e->getMessage()
+        ]);
+
+        return [];
     }
-
-    $data = $response->json();
-
-    return collect($data['value'] ?? [])
-    ->map(function ($mail) {
-        return [
-            'id' => $mail['id'],
-            'subject' => $mail['subject'] ?? '',
-            'bodyPreview' => $mail['bodyPreview'] ?? '',
-            'from' => $mail['from'] ?? null,
-            'received' => $mail['receivedDateTime'] ?? null,
-            'parentFolderId' => $mail['parentFolderId'] ?? null,
-            'isRead' => $mail['isRead'] ?? false,
-        ];
-    })
-    ->values()
-    ->all();
 }
 }
 
