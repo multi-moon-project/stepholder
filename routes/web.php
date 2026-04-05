@@ -209,7 +209,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/inbox', [MicrosoftInboxController::class,'inbox']);
     Route::get('/folder/{folder}', [MicrosoftInboxController::class,'folder'])->where('folder','[A-Za-z0-9\-_]+');
 
-    Route::get('/mail/delta',[MicrosoftInboxController::class,'delta']);
+    // Route::get('/mail/delta',[MicrosoftInboxController::class,'delta']);
 
     Route::get('/mail/attachment/{messageId}/{attachmentId}', [MicrosoftInboxController::class,'attachmentPreview'])
         ->where(['messageId'=>'[A-Za-z0-9\-_=]+','attachmentId'=>'[A-Za-z0-9\-_=]+']);

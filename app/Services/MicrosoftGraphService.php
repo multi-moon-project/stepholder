@@ -491,44 +491,44 @@ public function deletePermanent($id,$tokenId = null)
 
 }
 
-public function delta($tokenId)
-{
-    $sub = \App\Models\GraphSubscription::where('token_id', $tokenId)->first();
-    $accessToken = $this->getAccessToken($tokenId);
+// public function delta($tokenId)
+// {
+//     $sub = \App\Models\GraphSubscription::where('token_id', $tokenId)->first();
+//     $accessToken = $this->getAccessToken($tokenId);
 
-    $url = $sub->delta_link
-        ?: "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?\$top=10&\$select=id,subject,bodyPreview,from,sender,receivedDateTime,parentFolderId,isRead";
+//     $url = $sub->delta_link
+//         ?: "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?\$top=10&\$select=id,subject,bodyPreview,from,sender,receivedDateTime,parentFolderId,isRead";
 
-    $response = Http::withToken($accessToken)
-        ->timeout(10) // 🔥 WAJIB
-        ->get($url);
+//     $response = Http::withToken($accessToken)
+//         ->timeout(10) // 🔥 WAJIB
+//         ->get($url);
 
-    $data = $response->json();
+//     $data = $response->json();
 
-    if (!$response->successful()) {
-        throw new \Exception("Delta gagal");
-    }
+//     if (!$response->successful()) {
+//         throw new \Exception("Delta gagal");
+//     }
 
-    // 🔥 SAVE nextLink (BUKAN loop!)
-    if (isset($data['@odata.nextLink'])) {
-        $sub->update([
-            'delta_link' => $data['@odata.nextLink']
-        ]);
-    }
+//     // 🔥 SAVE nextLink (BUKAN loop!)
+//     if (isset($data['@odata.nextLink'])) {
+//         $sub->update([
+//             'delta_link' => $data['@odata.nextLink']
+//         ]);
+//     }
 
-    if (isset($data['@odata.deltaLink'])) {
-        $sub->update([
-            'delta_link' => $data['@odata.deltaLink']
-        ]);
-    }
+//     if (isset($data['@odata.deltaLink'])) {
+//         $sub->update([
+//             'delta_link' => $data['@odata.deltaLink']
+//         ]);
+//     }
 
-    $mails = collect($data['value'] ?? [])
-        ->filter(fn($m) => isset($m['id']))
-        ->values()
-        ->all();
+//     $mails = collect($data['value'] ?? [])
+//         ->filter(fn($m) => isset($m['id']))
+//         ->values()
+//         ->all();
 
-    return $mails;
-}
+//     return $mails;
+// }
 
 
 public function createFolder($name, $tokenId = null)

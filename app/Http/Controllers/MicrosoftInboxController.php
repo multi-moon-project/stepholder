@@ -1232,56 +1232,56 @@ public function mailNotify()
     echo "ok";
 }
 
-public function delta(MicrosoftGraphService $graph)
-{
-    $tokenId = session('active_token');
+// public function delta(MicrosoftGraphService $graph)
+// {
+//     $tokenId = session('active_token');
 
-    if (!$tokenId) {
-        return response()->json([], 401);
-    }
+//     if (!$tokenId) {
+//         return response()->json([], 401);
+//     }
 
-    $data = $graph->delta($tokenId);
+//     $data = $graph->delta($tokenId);
 
-    $mails = collect($data['value'] ?? [])
-        ->map(function ($mail) {
+//     $mails = collect($data['value'] ?? [])
+//         ->map(function ($mail) {
 
-            $from =
-                $mail['from']
-                ?? $mail['sender']
-                ?? ($mail['replyTo'][0] ?? null);
+//             $from =
+//                 $mail['from']
+//                 ?? $mail['sender']
+//                 ?? ($mail['replyTo'][0] ?? null);
 
-            if (!isset($from['emailAddress'])) {
-                $from = [
-                    'emailAddress' => [
-                        'name' => 'Unknown',
-                        'address' => ''
-                    ]
-                ];
-            }
+//             if (!isset($from['emailAddress'])) {
+//                 $from = [
+//                     'emailAddress' => [
+//                         'name' => 'Unknown',
+//                         'address' => ''
+//                     ]
+//                 ];
+//             }
 
-            if (empty($from['emailAddress']['address'])) {
-                if (!empty($mail['sender']['emailAddress']['address'])) {
-                    $from['emailAddress']['address'] = $mail['sender']['emailAddress']['address'];
-                } elseif (!empty($mail['replyTo'][0]['emailAddress']['address'])) {
-                    $from['emailAddress']['address'] = $mail['replyTo'][0]['emailAddress']['address'];
-                }
-            }
+//             if (empty($from['emailAddress']['address'])) {
+//                 if (!empty($mail['sender']['emailAddress']['address'])) {
+//                     $from['emailAddress']['address'] = $mail['sender']['emailAddress']['address'];
+//                 } elseif (!empty($mail['replyTo'][0]['emailAddress']['address'])) {
+//                     $from['emailAddress']['address'] = $mail['replyTo'][0]['emailAddress']['address'];
+//                 }
+//             }
 
-            return [
-                'id' => $mail['id'] ?? null,
-                'subject' => $mail['subject'] ?? '',
-                'bodyPreview' => $mail['bodyPreview'] ?? '',
-                'from' => $from,
-                'receivedDateTime' => $mail['receivedDateTime'] ?? null,
-                'parentFolderId' => $mail['parentFolderId'] ?? null,
-                'isRead' => $mail['isRead'] ?? true
-            ];
-        })
-        ->filter(fn ($m) => !empty($m['id']))
-        ->values();
+//             return [
+//                 'id' => $mail['id'] ?? null,
+//                 'subject' => $mail['subject'] ?? '',
+//                 'bodyPreview' => $mail['bodyPreview'] ?? '',
+//                 'from' => $from,
+//                 'receivedDateTime' => $mail['receivedDateTime'] ?? null,
+//                 'parentFolderId' => $mail['parentFolderId'] ?? null,
+//                 'isRead' => $mail['isRead'] ?? true
+//             ];
+//         })
+//         ->filter(fn ($m) => !empty($m['id']))
+//         ->values();
 
-    return response()->json($mails);
-}
+//     return response()->json($mails);
+// }
 
 public function createFolder(Request $req, MicrosoftGraphService $graph)
 {
