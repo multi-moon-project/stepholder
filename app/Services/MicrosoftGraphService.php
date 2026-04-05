@@ -490,60 +490,39 @@ public function deletePermanent($id,$tokenId = null)
 
 }
 
-
 public function delta($tokenId)
 {
-    if (!$tokenId) {
-        throw new \Exception("TokenId kosong");
-    }
-
     $sub = \App\Models\GraphSubscription::where('token_id', $tokenId)->first();
-
-    if (!$sub) {
-        throw new \Exception("Subscription tidak ditemukan");
-    }
-
     $accessToken = $this->getAccessToken($tokenId);
 
     $url = $sub->delta_link
-        ?: "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?\$select=id,subject,bodyPreview,from,sender,replyTo,receivedDateTime,parentFolderId,isRead";
+        ?: "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?\$top=10&\$select=id,subject,bodyPreview,from,sender,receivedDateTime,parentFolderId,isRead";
 
-    $allMails = [];
+    $response = Http::withToken($accessToken)
+        ->timeout(10) // 🔥 WAJIB
+        ->get($url);
 
-    do {
-        $response = Http::withToken($accessToken)->get($url);
-        $data = $response->json();
+    $data = $response->json();
 
-        if (!$response->successful()) {
-            throw new \Exception("Delta gagal: " . json_encode($data));
-        }
+    if (!$response->successful()) {
+        throw new \Exception("Delta gagal");
+    }
 
-        $batch = $data['value'] ?? [];
+    // 🔥 SAVE nextLink (BUKAN loop!)
+    if (isset($data['@odata.nextLink'])) {
+        $sub->update([
+            'delta_link' => $data['@odata.nextLink']
+        ]);
+    }
 
-        $allMails = array_merge($allMails, $batch);
+    if (isset($data['@odata.deltaLink'])) {
+        $sub->update([
+            'delta_link' => $data['@odata.deltaLink']
+        ]);
+    }
 
-        $url = $data['@odata.nextLink'] ?? null;
-
-        // 🔥 SIMPAN deltaLink TERBARU
-        if (isset($data['@odata.deltaLink'])) {
-            $sub->update([
-                'delta_link' => $data['@odata.deltaLink']
-            ]);
-        }
-
-    } while ($url);
-
-    // 🔥 FILTER EMAIL BARU
-    $mails = collect($allMails)
-        ->filter(function ($mail) {
-            if (!isset($mail['id'])) return false;
-
-            return !\Cache::has('mail_seen_' . $mail['id']);
-        })
-        ->map(function ($mail) {
-            \Cache::put('mail_seen_' . $mail['id'], true, 300);
-            return $mail;
-        })
+    $mails = collect($data['value'] ?? [])
+        ->filter(fn($m) => isset($m['id']))
         ->values()
         ->all();
 
