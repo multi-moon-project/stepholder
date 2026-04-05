@@ -158,6 +158,11 @@ Archive
 
 <button onclick="markReadSelected()"><i class="fa-solid fa-envelope-open"></i> Mark read</button>
 
+<button onclick="refreshCurrentFolder()">
+    <i class="fa-solid fa-rotate"></i>
+    Refresh
+</button>
+
 <button id="emptyTrashBtn" onclick="emptyTrash()" style="display:none">
 🧹 Empty Trash
 </button>

@@ -202,6 +202,46 @@ window.closeOneDrive = closeOneDrive;
 
 window.copyLead = copyLead;
 window.emailLead = emailLead;
+
+window.refreshCurrentFolder = function () {
+
+  const active = document.querySelector(".folder.active");
+
+  if (!active) {
+    console.warn("❌ No active folder");
+    return;
+  }
+
+  const folderId = active.dataset.id;
+  const name = active.innerText?.trim() || "";
+
+  console.log("🔄 REFRESH FOLDER:", folderId);
+
+  if (typeof window.loadFolder === "function") {
+    window.loadFolder(folderId, name, active);
+  }
+};
+
+window.refreshCurrentFolder = function () {
+
+  const active = document.querySelector(".folder.active");
+  if (!active) return;
+
+  const mailList = document.querySelector(".mail-list");
+
+  if (mailList) {
+    mailList.innerHTML = `
+      <div style="padding:20px;text-align:center">
+        Refreshing...
+      </div>
+    `;
+  }
+
+  const folderId = active.dataset.id;
+  const name = active.innerText?.trim() || "";
+
+  window.loadFolder(folderId, name, active);
+};
   
 
 // 🔥 expose ke global
@@ -247,3 +287,4 @@ export async function initMailAppCore() {
 // }, 5000);
 
 document.addEventListener("DOMContentLoaded", initMailAppCore);
+
