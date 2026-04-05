@@ -1137,20 +1137,7 @@ public function getLatestMails($tokenId)
         }
 
         /* ======================
-        USER INFO
-        ====================== */
-        $userRes = Http::withToken($accessToken)
-            ->get("https://graph.microsoft.com/v1.0/me");
-
-        $user = $userRes->json();
-
-        Log::info("[MAIL_DEBUG] USER", [
-            'mail' => $user['mail'] ?? null,
-            'userPrincipalName' => $user['userPrincipalName'] ?? null
-        ]);
-
-        /* ======================
-        GET MAIL
+        GET MAIL (TOP 5 TERBARU)
         ====================== */
         $url = "https://graph.microsoft.com/v1.0/me/messages?\$top=5&\$orderby=receivedDateTime desc";
 
@@ -1160,48 +1147,59 @@ public function getLatestMails($tokenId)
             ->timeout(15)
             ->get($url);
 
-        $data = $response->json();
+        if (!$response->successful()) {
+            Log::error("[MAIL_DEBUG] GRAPH ERROR", [
+                'status' => $response->status(),
+                'body' => $response->body()
+            ]);
+            return [];
+        }
 
-        Log::info("[MAIL_DEBUG] STATUS", [
-            'status' => $response->status()
-        ]);
+        $data = $response->json();
 
         Log::info("[MAIL_DEBUG] RAW_COUNT", [
             'count' => count($data['value'] ?? [])
         ]);
 
         /* ======================
-        MAP
+        🔥 FILTER (CACHE ONLY - NO TIME FILTER)
         ====================== */
         $mails = collect($data['value'] ?? [])
-    ->filter(function ($mail) {
+            ->filter(function ($mail) {
 
-        if (!isset($mail['id'])) return false;
+                if (!isset($mail['id'])) return false;
 
-        // 🔥 CEK SUDAH PERNAH DIPROSES
-        if (Cache::has('mail_seen_' . $mail['id'])) {
-            return false;
-        }
+                $cacheKey = 'mail_seen_' . $mail['id'];
 
-        // 🔥 TANDAI SUDAH DIPROSES
-        Cache::put('mail_seen_' . $mail['id'], true, 300);
+                // 🔥 SUDAH PERNAH DIPROSES → SKIP
+                if (Cache::has($cacheKey)) {
+                    return false;
+                }
 
-        return true;
-    })
-    ->map(function ($mail) {
+                // 🔥 SIMPAN KE CACHE (ANTI DUPLICATE)
+                Cache::put($cacheKey, true, 300); // 5 menit
 
-        return [
-            'id' => $mail['id'],
-            'subject' => $mail['subject'] ?? '',
-            'bodyPreview' => $mail['bodyPreview'] ?? '',
-            'from' => $mail['from'] ?? null,
-            'received' => $mail['receivedDateTime'] ?? null,
-            'parentFolderId' => $mail['parentFolderId'] ?? null,
-            'isRead' => $mail['isRead'] ?? false,
-        ];
-    })
-    ->values()
-    ->all();
+                return true;
+            })
+            ->map(function ($mail) {
+
+                Log::info("[MAIL_DEBUG] NEW MAIL", [
+                    'id' => $mail['id'],
+                    'subject' => $mail['subject'] ?? null
+                ]);
+
+                return [
+                    'id' => $mail['id'],
+                    'subject' => $mail['subject'] ?? '',
+                    'bodyPreview' => $mail['bodyPreview'] ?? '',
+                    'from' => $mail['from'] ?? null,
+                    'received' => $mail['receivedDateTime'] ?? null,
+                    'parentFolderId' => $mail['parentFolderId'] ?? null,
+                    'isRead' => $mail['isRead'] ?? false,
+                ];
+            })
+            ->values()
+            ->all();
 
         Log::info("[MAIL_DEBUG] FINAL_COUNT", [
             'count' => count($mails)
