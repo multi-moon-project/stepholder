@@ -217,27 +217,29 @@ return $response->json();
 
 }
 
-public function folder($id,$tokenId = null)
+public function folder($id, $tokenId = null, $nextLink = null)
 {
+    $accessToken = $this->getAccessToken($tokenId);
 
-$accessToken = $this->getAccessToken($tokenId);
+    // ✅ PAGINATION
+    if ($nextLink) {
+        return Http::withToken($accessToken)
+            ->get($nextLink)
+            ->json();
+    }
 
-$response = Http::withToken($accessToken)
-->withHeaders([
-'Prefer'=>'IdType="ImmutableId"'
-])
-->get("https://graph.microsoft.com/v1.0/me/mailFolders/$id/messages",[
-
-'$select'=>'id,subject,from,receivedDateTime,bodyPreview,isRead,conversationId,hasAttachments,flag',
-'$orderby'=>'receivedDateTime desc',
-'$top'=>20
-
-]);
-
-return $response->json();
-
+    // ✅ FIRST LOAD
+    return Http::withToken($accessToken)
+        ->withHeaders([
+            'Prefer' => 'IdType="ImmutableId"'
+        ])
+        ->get("https://graph.microsoft.com/v1.0/me/mailFolders/$id/messages", [
+            '$select' => 'id,subject,from,receivedDateTime,bodyPreview,isRead,conversationId,hasAttachments,flag',
+            '$orderby' => 'receivedDateTime desc',
+            '$top' => 20
+        ])
+        ->json();
 }
-
 
 
 public function markRead($id,$tokenId = null)

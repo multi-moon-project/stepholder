@@ -148,9 +148,18 @@ return view('mail.inbox',compact('emails','folders'));
 
 
 
-public function folder($folder, MicrosoftGraphService $graph)
+public function folder($folder, Request $request, MicrosoftGraphService $graph)
 {
-    $data = $graph->folder($folder);
+    $tokenId = $request->token_id; // ✅ NO SESSION
+
+    if (!$tokenId) {
+        abort(403, 'Missing token_id');
+    }
+
+    $next = $request->next;
+
+    // ✅ FIX: support pagination
+    $data = $graph->folder($folder, $tokenId, $next);
 
     $emails = collect($data['value'] ?? [])
         ->map(function($mail){
@@ -170,15 +179,10 @@ public function folder($folder, MicrosoftGraphService $graph)
         ->values()
         ->all();
 
-    $nextLink = $data['@odata.nextLink'] ?? null;
-
-    // 🔥 TAMBAHKAN INI
-    $folders = $graph->folders()['value'] ?? [];
-
     return view('mail.inbox', [
         'emails' => $emails,
-        'nextLink' => $nextLink,
-        'folders' => $folders
+        'nextLink' => $data['@odata.nextLink'] ?? null,
+        'folders' => $graph->folders($tokenId)['value'] ?? []
     ]);
 }
 

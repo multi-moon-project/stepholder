@@ -14,6 +14,11 @@ export function setCachedEmails(emails) {
   cachedEmails = Array.isArray(emails) ? emails : [];
 }
 
+/*
+========================================
+BUILD MAIL ITEM
+========================================
+*/
 export function buildMailItemHtml(mail, keyword = "") {
   const time = formatMailDate(mail.receivedDateTime);
   const sender = escapeHtml(mail.from ?? "Unknown");
@@ -80,6 +85,11 @@ export function buildMailItemHtml(mail, keyword = "") {
   `;
 }
 
+/*
+========================================
+RENDER LIST
+========================================
+*/
 export function renderMailList(mails, keyword = "", append = false) {
   if (!state.mailListEl) return;
 
@@ -94,6 +104,11 @@ export function renderMailList(mails, keyword = "", append = false) {
   }
 }
 
+/*
+========================================
+LOAD MORE (🔥 FULL FIX)
+========================================
+*/
 export async function loadMoreEmails() {
   console.log("🔥 LOAD MORE TRIGGERED");
   console.log("NEXT PAGE:", state.nextPage);
@@ -101,15 +116,20 @@ export async function loadMoreEmails() {
   if (!state.nextPage || state.loadingMore) return;
 
   state.loadingMore = true;
-
-  // 🔥 SHOW LOADER
   showBottomLoader();
 
   try {
+    /*
+    ========================================
+    SEARCH MODE
+    ========================================
+    */
     if (state.searchMode) {
       const data = await safeJson(
         "/api/search?q=" +
           encodeURIComponent(state.searchQuery) +
+          "&token_id=" +
+          encodeURIComponent(state.tokenId) +
           "&next=" +
           encodeURIComponent(state.nextPage)
       );
@@ -122,17 +142,29 @@ export async function loadMoreEmails() {
       return;
     }
 
+    /*
+    ========================================
+    NORMAL MODE (FOLDER / INBOX)
+    ========================================
+    */
     let url;
 
-   if (state.currentFolder?.toLowerCase().includes("inbox")) {
-  url = "/inbox?next=" + encodeURIComponent(state.nextPage);
-} else {
-  url =
-    "/folder/" +
-    state.currentFolderId + // ✅ FIX
-    "?next=" +
-    encodeURIComponent(state.nextPage);
-}
+    if (state.currentFolder?.toLowerCase().includes("inbox")) {
+      url =
+        "/inbox?token_id=" +
+        encodeURIComponent(state.tokenId) +
+        "&next=" +
+        encodeURIComponent(state.nextPage);
+    } else {
+      url =
+        "/folder/" +
+        encodeURIComponent(state.currentFolderId) + // 🔥 FIX WAJIB
+        "?token_id=" +
+        encodeURIComponent(state.tokenId) +
+        "&next=" +
+        encodeURIComponent(state.nextPage);
+    }
+
     const html = await safeText(url);
     if (!html) return;
 
@@ -147,16 +179,20 @@ export async function loadMoreEmails() {
 
     const next = doc.querySelector("#nextPageLink");
     state.nextPage = next ? next.dataset.next : null;
+
   } catch (e) {
     console.error("Load more error:", e);
   } finally {
     state.loadingMore = false;
-
-    // 🔥 HIDE LOADER
     hideBottomLoader();
   }
 }
 
+/*
+========================================
+SCROLL LISTENER
+========================================
+*/
 export function mountMailListScroll() {
   if (!state.mailListEl) return;
 
@@ -174,15 +210,24 @@ export function mountMailListScroll() {
   });
 }
 
+/*
+========================================
+SKELETON
+========================================
+*/
 export function showMailListSkeleton() {
   if (!state.mailListEl) return;
   state.mailListEl.innerHTML = skeletonList();
 }
 
+/*
+========================================
+LOADER
+========================================
+*/
 function showBottomLoader() {
   if (!state.mailListEl) return;
 
-  // cegah duplicate
   if (state.mailListEl.querySelector(".mail-loader")) return;
 
   state.mailListEl.insertAdjacentHTML(

@@ -4,6 +4,11 @@ import { safeText } from "../core/api";
 import { skeletonList } from "../ui/skeleton";
 import { refreshFolderCrudBindings } from "./folderCrud";
 
+/*
+========================================
+TRASH BUTTON TOGGLE
+========================================
+*/
 export function toggleTrashButtons() {
   const trashBtn = qs("#emptyTrashBtn");
   const recoverBtn = qs("#recoverBtn");
@@ -21,16 +26,31 @@ export function toggleTrashButtons() {
   }
 }
 
+/*
+========================================
+LOAD FOLDER (MULTI ACCOUNT SAFE)
+========================================
+*/
 export async function loadFolder(id, name, el) {
   state.loadingMore = false;
+
+  // 🔥 WAJIB: simpan ID untuk pagination
+  state.currentFolderId = id;
+
+  // 🔥 nama folder (UI only)
   state.currentFolder = name;
 
-  // highlight
+  // =========================
+  // UI: highlight folder
+  // =========================
   qsa(".folder").forEach((f) => f.classList.remove("active"));
   if (el) el.classList.add("active");
 
   toggleTrashButtons();
 
+  // =========================
+  // RESET PREVIEW
+  // =========================
   const preview = qs(".mail-preview");
 
   if (preview) {
@@ -57,14 +77,23 @@ export async function loadFolder(id, name, el) {
   }
 
   // =========================
-  // LOADING
+  // LOADING STATE
   // =========================
   state.mailListEl.innerHTML = skeletonList();
 
-  // =========================
-  // FETCH
-  // =========================
-  const html = await safeText("/folder/" + encodeURIComponent(id));
+  /*
+  ========================================
+  FETCH (🔥 MULTI ACCOUNT + SAFE URL)
+  ========================================
+  */
+  const url =
+    "/folder/" +
+    encodeURIComponent(id) +
+    "?token_id=" +
+    encodeURIComponent(state.tokenId);
+
+  const html = await safeText(url);
+
   if (!html) return;
 
   const parser = new DOMParser();
@@ -72,7 +101,9 @@ export async function loadFolder(id, name, el) {
 
   const newList = doc.querySelector(".mail-list");
 
-  // 🔥 ambil nextPage dulu
+  // =========================
+  // NEXT PAGE (IMPORTANT)
+  // =========================
   const next = doc.querySelector("#nextPageLink");
   const nextPage = next ? next.dataset.next : null;
 
@@ -89,10 +120,24 @@ export async function loadFolder(id, name, el) {
     }
   }
 
-  // update pagination
+  // =========================
+  // SAVE PAGINATION STATE
+  // =========================
   state.nextPage = nextPage;
 
-  history.pushState({}, "", "/folder/" + encodeURIComponent(id));
+  /*
+  ========================================
+  UPDATE URL (🔥 MULTI ACCOUNT SAFE)
+  ========================================
+  */
+  history.pushState(
+    {},
+    "",
+    "/folder/" +
+      encodeURIComponent(id) +
+      "?token_id=" +
+      encodeURIComponent(state.tokenId)
+  );
 
   refreshFolderCrudBindings();
 }
