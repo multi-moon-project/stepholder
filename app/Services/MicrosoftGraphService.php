@@ -500,75 +500,52 @@ public function delta($tokenId)
     $sub = \App\Models\GraphSubscription::where('token_id', $tokenId)->first();
 
     if (!$sub) {
-        throw new \Exception("Subscription tidak ditemukan untuk token: " . $tokenId);
+        throw new \Exception("Subscription tidak ditemukan");
     }
 
     $accessToken = $this->getAccessToken($tokenId);
 
     $url = $sub->delta_link
-        ? $sub->delta_link
-        : "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?\$select=id,subject,bodyPreview,from,sender,replyTo,receivedDateTime,parentFolderId,isRead";
+        ?: "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?\$select=id,subject,bodyPreview,from,sender,replyTo,receivedDateTime,parentFolderId,isRead";
 
-    $all = [];
-    $loop = 0;
+    $allMails = [];
 
-    // 🔥 LOOP SEMUA PAGE (INI KUNCI FIX)
-    while ($url && $loop < 5) {
-
+    do {
         $response = Http::withToken($accessToken)->get($url);
         $data = $response->json();
 
-        \Log::info("DELTA LOOP", [
-            'url' => $url,
-            'count' => count($data['value'] ?? []),
-            'has_next' => isset($data['@odata.nextLink']),
-            'has_delta' => isset($data['@odata.deltaLink'])
-        ]);
-
         if (!$response->successful()) {
-            throw new \Exception("Delta request gagal: " . json_encode($data));
+            throw new \Exception("Delta gagal: " . json_encode($data));
         }
 
-        // gabungkan semua data
-        $all = array_merge($all, $data['value'] ?? []);
+        $batch = $data['value'] ?? [];
 
-        // lanjut ke page berikutnya
-        if (isset($data['@odata.nextLink'])) {
-            $url = $data['@odata.nextLink'];
-        } else {
-            $url = null;
-        }
+        $allMails = array_merge($allMails, $batch);
 
-        // simpan deltaLink terakhir
+        $url = $data['@odata.nextLink'] ?? null;
+
+        // 🔥 SIMPAN deltaLink TERBARU
         if (isset($data['@odata.deltaLink'])) {
             $sub->update([
                 'delta_link' => $data['@odata.deltaLink']
             ]);
         }
 
-        $loop++;
-    }
+    } while ($url);
 
-    // 🔥 FILTER DUPLICATE (SERVER SIDE)
-    $mails = collect($all)
+    // 🔥 FILTER EMAIL BARU
+    $mails = collect($allMails)
         ->filter(function ($mail) {
             if (!isset($mail['id'])) return false;
 
             return !\Cache::has('mail_seen_' . $mail['id']);
         })
         ->map(function ($mail) {
-
             \Cache::put('mail_seen_' . $mail['id'], true, 300);
-
             return $mail;
         })
         ->values()
         ->all();
-
-    \Log::info("DELTA FINAL RESULT", [
-        'total_raw' => count($all),
-        'filtered' => count($mails)
-    ]);
 
     return $mails;
 }
