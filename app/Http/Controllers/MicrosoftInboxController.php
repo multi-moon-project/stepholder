@@ -151,10 +151,15 @@ return view('mail.inbox',compact('emails','folders'));
 public function folder($folder, Request $request, MicrosoftGraphService $graph)
 {
     $tokenId = $request->token_id; // ✅ NO SESSION
+    
 
-    if (!$tokenId) {
-        abort(403, 'Missing token_id');
-    }
+   if (!$tokenId) {
+    \Log::error("TOKEN_ID MISSING", [
+        'url' => request()->fullUrl()
+    ]);
+
+    abort(403, 'Missing token_id');
+}
 
     $next = $request->next;
 

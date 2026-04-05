@@ -212,6 +212,16 @@ window.menuDelete = menuDelete;
 window.menuRename = menuRename;
 }
 export async function initMailAppCore() {
+
+  if (!state.tokenId) {
+  console.error("❌ TOKEN ID MISSING");
+  alert("Token tidak ditemukan. Reload halaman.");
+  return;
+}
+  state.tokenId = window.ACTIVE_TOKEN_ID;
+
+  console.log("ACTIVE TOKEN:", state.tokenId); // debug
+
   state.nextPage = window.__MAIL_NEXT_PAGE__ ?? state.nextPage;
   state.mailListEl = qs(".mail-list");
   initFolderIcons();

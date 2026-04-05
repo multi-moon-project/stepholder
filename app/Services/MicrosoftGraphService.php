@@ -27,7 +27,7 @@ private function resolveToken($tokenId = null)
         $token = Token::find($tokenId);
 
         if (!$token) {
-            throw new \Exception("Token not found");
+         throw new \Exception("Token not found: ".$tokenId);
         }
 
         return $token;
