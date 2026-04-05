@@ -213,12 +213,14 @@ window.menuRename = menuRename;
 }
 export async function initMailAppCore() {
 
-  if (!state.tokenId) {
+ 
+  state.tokenId = window.ACTIVE_TOKEN_ID;
+
+   if (!state.tokenId) {
   console.error("❌ TOKEN ID MISSING");
   alert("Token tidak ditemukan. Reload halaman.");
   return;
 }
-  state.tokenId = window.ACTIVE_TOKEN_ID;
 
   console.log("ACTIVE TOKEN:", state.tokenId); // debug
 
