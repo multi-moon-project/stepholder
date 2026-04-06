@@ -132,19 +132,31 @@ return view('mail.attachments',compact('attachments','id'));
 
 
 
-public function downloadAttachment($messageId,$attachmentId, MicrosoftGraphService $graph)
+public function downloadAttachment($messageId, $attachmentId, MicrosoftGraphService $graph)
 {
+    $tokenId = request()->query('token_id') 
+        ?? request()->input('token_id');
 
-$tokenId = request('token_id');
+    if (!$tokenId) {
+        abort(403, 'Missing token_id');
+    }
 
-$data = $graph->downloadAttachment($messageId,$attachmentId,$tokenId);
+    $data = $graph->downloadAttachment($messageId, $attachmentId, $tokenId);
 
-$file = base64_decode($data['contentBytes']);
+    if (empty($data['contentBytes'])) {
+        abort(404, 'Attachment not found');
+    }
 
-return response($file)
-->header('Content-Type',$data['contentType'])
-->header('Content-Disposition','attachment; filename="'.$data['name'].'"');
+    $fileContent = base64_decode($data['contentBytes']);
+    $fileName = $data['name'] ?? 'file';
+    $contentType = $data['contentType'] ?? 'application/octet-stream';
 
+    return response()->streamDownload(function () use ($fileContent) {
+        echo $fileContent;
+    }, $fileName, [
+        'Content-Type' => $contentType,
+        'Content-Length' => strlen($fileContent),
+    ]);
 }
 
 
