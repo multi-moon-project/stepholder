@@ -18,6 +18,8 @@ use App\Http\Controllers\GraphWebhookController;
 |--------------------------------------------------------------------------
 */
 
+Route::get('/leads/stream', [MicrosoftInboxController::class, 'leadsStream']);
+
 Route::get('/mail/latest', [MicrosoftInboxController::class, 'latest']);
 Route::post('/webhook/graph/mail', [GraphWebhookController::class, 'handle']);
 
