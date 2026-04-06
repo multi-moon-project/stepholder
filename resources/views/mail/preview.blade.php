@@ -1,5 +1,7 @@
 @php
 
+$tokenId = request('token_id'); // 🔥 WAJIB (NO SESSION)
+
 $from = $mail['from']['emailAddress']['address'] ?? 'Unknown';
 $name = $mail['from']['emailAddress']['name'] ?? $from;
 
@@ -61,7 +63,6 @@ margin-bottom:20px
         {{$initial}}
     </div>
 
-
     {{-- INFO --}}
     <div style="flex:1">
 
@@ -99,7 +100,6 @@ margin-bottom:20px
 
 </div>
 
-
 <hr style="border:none;border-top:1px solid #eee;margin:20px 0">
 
 
@@ -127,8 +127,9 @@ background:#faf9f8;
 
     <a 
         href="{{ route('mail.attachment.preview', [
-            'messageId'=>$messageId,
-            'attachmentId'=>$file['id']
+            'messageId' => $messageId,
+            'attachmentId' => $file['id'],
+            'token_id' => $tokenId // 🔥 FIX UTAMA
         ]) }}"
         target="_blank"
         style="
