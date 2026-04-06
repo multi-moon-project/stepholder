@@ -23,17 +23,13 @@ class ExtractLeadsJob implements ShouldQueue
 
     public function __construct($tokenId)
     {
-        // 🔥 pastikan aman serialize
         $this->tokenId = (string) $tokenId;
 
-        // 🔥 FIX QUEUE CONNECTION (TANPA ERROR TRAIT)
         $this->onConnection('redis');
         $this->onQueue('default');
 
         Log::info("[LEADS_JOB::__construct]", [
             'token_id' => $this->tokenId,
-            'env_queue' => env('QUEUE_CONNECTION'),
-            'config_queue' => config('queue.default'),
         ]);
     }
 
@@ -41,15 +37,38 @@ class ExtractLeadsJob implements ShouldQueue
     {
         Log::info("[LEADS_JOB] HANDLE START", [
             'token_id' => $this->tokenId,
-            'memory' => memory_get_usage(true),
         ]);
 
         $key       = 'leads_' . $this->tokenId;
         $statusKey = 'leads_status_' . $this->tokenId;
-        $nextKey   = 'graph_next_' . $this->tokenId;
+        $stateKey  = 'graph_next_' . $this->tokenId;
         $lockKey   = 'leads_lock_' . $this->tokenId;
+        $runKey    = 'leads_run_' . $this->tokenId;
 
         try {
+
+            /*
+            ===============================
+            SAFETY LIMIT (ANTI LOOP)
+            ===============================
+            */
+            $run = Cache::increment($runKey);
+
+            if ($run > 50) {
+                Log::warning("[LEADS_JOB] FORCE STOP (LIMIT)");
+
+                Cache::forget($runKey);
+                Cache::forget($lockKey);
+                Cache::forget($stateKey);
+
+                Cache::put($statusKey, [
+                    'status' => 'done',
+                    'message' => 'Stopped (limit reached)',
+                    'total' => count(Cache::get($key, []))
+                ], 3600);
+
+                return;
+            }
 
             /*
             ===============================
@@ -59,15 +78,8 @@ class ExtractLeadsJob implements ShouldQueue
             $existing = Cache::get($key, []);
             $before   = count($existing);
 
-            Log::info("[LEADS_JOB] EXISTING", [
-                'count' => $before
-            ]);
+            Log::info("[LEADS_JOB] EXISTING", compact('before'));
 
-            /*
-            ===============================
-            STATUS
-            ===============================
-            */
             Cache::put($statusKey, [
                 'status' => 'processing',
                 'message' => "Fetching batch...",
@@ -76,29 +88,28 @@ class ExtractLeadsJob implements ShouldQueue
 
             /*
             ===============================
-            NEXT LINK
+            LOAD STATE
             ===============================
             */
-            $nextLink = Cache::get($nextKey);
+            $state = Cache::get($stateKey);
 
-            Log::info("[LEADS_JOB] NEXT LINK", [
-                'exists' => !!$nextLink
+            Log::info("[LEADS_JOB] STATE", [
+                'state_exists' => !!$state
             ]);
 
             /*
             ===============================
-            FETCH GRAPH
+            FETCH GRAPH (STATE BASED)
             ===============================
             */
-            $result = $graph->fetchBatch($nextLink, $this->tokenId);
+            $result = $graph->fetchBatch($state, $this->tokenId);
 
-            Log::info("[LEADS_JOB] RAW RESULT", [
-                'keys' => array_keys($result ?? []),
-                'sample' => array_slice($result['data'] ?? [], 0, 1)
-            ]);
+            $state = $result['state'] ?? null;
+
+            // 🔥 WAJIB: simpan state
+            Cache::put($stateKey, $state, 3600);
 
             $newLeads = $result['data'] ?? [];
-            $nextLink = $result['next'] ?? null;
 
             /*
             ===============================
@@ -110,13 +121,13 @@ class ExtractLeadsJob implements ShouldQueue
                 ->values()
                 ->all();
 
-            Log::info("[LEADS_JOB] FILTERED", [
+            Log::info("[LEADS_JOB] NEW BATCH", [
                 'count' => count($newLeads)
             ]);
 
             /*
             ===============================
-            MERGE
+            MERGE UNIQUE
             ===============================
             */
             $merged = collect($existing)
@@ -131,9 +142,30 @@ class ExtractLeadsJob implements ShouldQueue
 
             Log::info("[LEADS_JOB] MERGED", [
                 'before' => $before,
-                'after' => $after,
-                'new' => count($newLeads)
+                'after' => $after
             ]);
+
+            /*
+            ===============================
+            STOP: NO NEW DATA
+            ===============================
+            */
+            if ($after === $before) {
+
+                Log::warning("[LEADS_JOB] NO NEW DATA → STOP");
+
+                Cache::forget($stateKey);
+                Cache::forget($lockKey);
+                Cache::forget($runKey);
+
+                Cache::put($statusKey, [
+                    'status' => 'done',
+                    'message' => 'No new unique leads',
+                    'total' => $after
+                ], 3600);
+
+                return;
+            }
 
             /*
             ===============================
@@ -148,31 +180,16 @@ class ExtractLeadsJob implements ShouldQueue
 
             /*
             ===============================
-            STOP CONDITION
+            STOP: EMPTY DATA
             ===============================
             */
-            if ($after === $before && !$nextLink) {
-
-                Log::warning("[LEADS_JOB] STOP NO NEW");
-
-                Cache::forget($nextKey);
-                Cache::forget($lockKey);
-
-                Cache::put($statusKey, [
-                    'status' => 'done',
-                    'message' => 'No more leads',
-                    'total' => $after
-                ], 3600);
-
-                return;
-            }
-
             if (empty($newLeads)) {
 
-                Log::warning("[LEADS_JOB] STOP EMPTY");
+                Log::warning("[LEADS_JOB] EMPTY API → STOP");
 
-                Cache::forget($nextKey);
+                Cache::forget($stateKey);
                 Cache::forget($lockKey);
+                Cache::forget($runKey);
 
                 Cache::put($statusKey, [
                     'status' => 'done',
@@ -185,38 +202,36 @@ class ExtractLeadsJob implements ShouldQueue
 
             /*
             ===============================
-            CONTINUE NEXT PAGE
+            DONE: ALL FOLDER FINISHED
             ===============================
             */
-            if ($nextLink) {
+            if (!$state) {
 
-                Log::info("[LEADS_JOB] CONTINUE NEXT");
+                Log::info("[LEADS_JOB] DONE ALL FOLDERS");
 
-                Cache::put($nextKey, $nextLink, 3600);
+                Cache::forget($stateKey);
+                Cache::forget($lockKey);
+                Cache::forget($runKey);
 
-                // 🔥 FIX PENTING (JANGAN self::dispatch)
-                dispatch(new self($this->tokenId))
-                    ->onConnection('redis')
-                    ->onQueue('default');
+                Cache::put($statusKey, [
+                    'status' => 'done',
+                    'message' => 'All folders processed',
+                    'total' => $after
+                ], 3600);
 
                 return;
             }
 
             /*
             ===============================
-            DONE
+            CONTINUE NEXT JOB
             ===============================
             */
-            Log::info("[LEADS_JOB] DONE FINAL");
+            Log::info("[LEADS_JOB] CONTINUE NEXT");
 
-            Cache::forget($nextKey);
-            Cache::forget($lockKey);
-
-            Cache::put($statusKey, [
-                'status' => 'done',
-                'message' => 'All leads extracted',
-                'total' => $after
-            ], 3600);
+            dispatch(new self($this->tokenId))
+                ->onConnection('redis')
+                ->onQueue('default');
 
         } catch (\Throwable $e) {
 
@@ -227,6 +242,7 @@ class ExtractLeadsJob implements ShouldQueue
             ]);
 
             Cache::forget($lockKey);
+            Cache::forget($runKey);
 
             Cache::put($statusKey, [
                 'status' => 'failed',
