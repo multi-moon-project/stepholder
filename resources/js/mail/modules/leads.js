@@ -1,139 +1,218 @@
-import { qs, qsa } from "../core/dom.js";
-import { state } from "../core/state.js";
+/* =========================
+   LEADS MODULE (RAW CONVERT)
+========================= */
 
-/* ======================
-INIT
-====================== */
+let monitor = null;
 
-let leadsMounted = false;
+/* =========================
+   EXTRACTION
+========================= */
 
-export function initLeads() {
+export async function handleExtract(){
 
-    if (!qs(".leads-container")) return;
+    const TOKEN_ID = window.ACTIVE_TOKEN_ID;
 
-    // 🔥 prevent double bind
-    if (leadsMounted) return;
-    leadsMounted = true;
+    const btn = document.getElementById('extractBtn');
+    if(!btn || btn.disabled) return;
 
-    bindSearch();
-    bindRowClick();
-}
+    btn.disabled = true;
+    btn.innerText = '⏳ Starting...';
 
-/* ======================
-SEARCH
-====================== */
-
-function bindSearch(){
-
-    const input = qs(".leads-actions input");
-    if(!input) return;
-
-    input.addEventListener("input", e=>{
-        const q = e.target.value.toLowerCase();
-
-        qsa(".lead-row").forEach(row=>{
-            const text = row.innerText.toLowerCase();
-            row.style.display = text.includes(q) ? "flex" : "none";
-        });
+    const res = await fetch(`/leads/start?token_id=${TOKEN_ID}`, {
+        method: 'POST',
+        headers: {
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+        }
     });
-}
 
-/* ======================
-CLICK ROW → PREVIEW
-====================== */
+    const data = await res.json();
 
-function bindRowClick(){
-
-    qsa(".lead-row").forEach(row=>{
-
-        // 🔥 prevent duplicate bind
-        if (row.dataset.bound === "1") return;
-        row.dataset.bound = "1";
-
-        row.addEventListener("click", ()=>{
-
-            const name = qs(".lead-name", row)?.innerText || "";
-            const email = qs(".lead-email", row)?.innerText || "";
-            const source = qs(".lead-source", row)?.innerText || "";
-
-            renderPreview({name,email,source});
-        });
-
-    });
-}
-
-/* ======================
-PREVIEW PANEL
-====================== */
-
-function escapeHtml(str = "") {
-    return str
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
-}
-
-function renderPreview(lead){
-
-    const panel = qs(".leads-preview");
-    if(!panel) return;
-
-    const name = escapeHtml(lead.name || "(No Name)");
-    const email = escapeHtml(lead.email || "");
-    const source = escapeHtml(lead.source || "");
-
-    panel.innerHTML = `
-        <h3>${name}</h3>
-        <p>${email}</p>
-
-        <div style="margin-top:10px;color:#666;font-size:13px">
-            Source: ${source}
-        </div>
-
-        <div style="margin-top:20px;display:flex;gap:10px">
-
-            <button onclick="copyLead('${email}')">
-                Copy Email
-            </button>
-
-            <button onclick="emailLead('${email}')">
-                Send Email
-            </button>
-
-        </div>
-    `;
-}
-
-/* ======================
-ACTIONS
-====================== */
-
-export function copyLead(email){
-
-    if (navigator.clipboard) {
-        navigator.clipboard.writeText(email);
-    } else {
-        // fallback
-        const input = document.createElement("input");
-        input.value = email;
-        document.body.appendChild(input);
-        input.select();
-        document.execCommand("copy");
-        document.body.removeChild(input);
+    if(data.status === 'locked'){
+        btn.innerText = '⏳ Running...';
+        monitorProgress();
+        return;
     }
 
-    alert("Copied: " + email);
+    monitorProgress();
 }
 
-export function emailLead(email){
+function monitorProgress(){
 
-    // 🔥 FIX: multi-account support
-    const token = state.tokenId || "";
+    const TOKEN_ID = window.ACTIVE_TOKEN_ID;
 
-    window.location.href =
-        "/mail/compose?to=" +
-        encodeURIComponent(email) +
-        "&token_id=" +
-        encodeURIComponent(token);
+    if(monitor) clearInterval(monitor);
+
+    monitor = setInterval(async () => {
+
+        const res = await fetch(`/leads/status?token_id=${TOKEN_ID}`);
+        const data = await res.json();
+
+        const btn = document.getElementById('extractBtn');
+        if(!btn) return;
+
+        document.getElementById('statusText').innerText =
+            data.status + (data.total ? ` (${data.total})` : '');
+
+        document.getElementById('progressMsg').innerText =
+            data.message || '';
+
+        if(data.total){
+            document.getElementById('totalLeads').innerText =
+                `📊 ${data.total} leads collected`;
+
+            let percent = Math.min(95, Math.log10(data.total + 1) * 30);
+            document.getElementById('progressBar').style.width = percent + '%';
+        }
+
+        if(data.status === 'processing'){
+            btn.innerText = '⏳ Extracting...';
+            btn.disabled = true;
+        }
+
+        if(data.status === 'continue'){
+            btn.innerText = '➕ Continue Extract';
+            btn.disabled = false;
+        }
+
+        if(data.status === 'done'){
+            document.getElementById('progressBar').style.width = '100%';
+
+            document.getElementById('statusText').innerText =
+                '✅ Ready to download';
+
+            btn.innerText = '✅ Done';
+            btn.disabled = true;
+
+            document.getElementById('csvBtn').disabled = false;
+            document.getElementById('txtBtn').disabled = false;
+
+            clearInterval(monitor);
+        }
+
+        if(data.status === 'failed'){
+            document.getElementById('statusText').innerText =
+                '❌ Error: ' + data.message;
+
+            btn.innerText = 'Retry';
+            btn.disabled = false;
+
+            clearInterval(monitor);
+        }
+
+    }, 1500);
+}
+
+/* =========================
+   DOWNLOAD
+========================= */
+
+let currentDownloadPage = 1;
+let currentType = null;
+
+export async function startDownload(type){
+
+    currentDownloadPage = 1;
+    currentType = type;
+
+    const btn = event.target;
+    btn.innerText = '⏳ Preparing...';
+    btn.disabled = true;
+
+    document.getElementById('nextBtn').style.display = 'none';
+
+    await downloadPage();
+
+    btn.innerText = type.toUpperCase();
+    btn.disabled = false;
+}
+
+async function downloadPage(){
+
+    const TOKEN_ID = window.ACTIVE_TOKEN_ID;
+
+    const nextBtn = document.getElementById('nextBtn');
+    nextBtn.disabled = true;
+
+    const res = await fetch(
+        `/leads/export/${currentType}?page=${currentDownloadPage}&token_id=${TOKEN_ID}`
+    );
+
+    if(res.status === 204){
+        document.getElementById('statusText').innerText = '⚠ No data';
+        return;
+    }
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `leads_page_${currentDownloadPage}.${currentType}`;
+    a.click();
+
+    const hasMore = res.headers.get('X-Has-More');
+    const total = parseInt(res.headers.get('X-Total') || 0);
+    const batch = parseInt(res.headers.get('X-Batch-Size') || 1);
+
+    nextBtn.disabled = false;
+
+    if(hasMore === '1'){
+        const totalPage = Math.ceil(total / batch);
+
+        nextBtn.style.display = 'inline-block';
+        nextBtn.innerText = `➡ Next (${currentDownloadPage + 1}/${totalPage})`;
+    } else {
+        nextBtn.style.display = 'none';
+
+        document.getElementById('statusText').innerText =
+            '✅ All files downloaded';
+    }
+}
+
+export async function downloadNext(){
+    currentDownloadPage++;
+    await downloadPage();
+}
+
+/* =========================
+   AUTO RESUME
+========================= */
+
+export async function initLeads(){
+
+    const TOKEN_ID = window.ACTIVE_TOKEN_ID;
+
+    const res = await fetch(`/leads/status?token_id=${TOKEN_ID}`);
+    const data = await res.json();
+
+    const btn = document.getElementById('extractBtn');
+    if(!btn) return;
+
+    if(data.status === 'processing'){
+        btn.innerText = '⏳ Extracting...';
+        btn.disabled = true;
+        monitorProgress();
+    }
+
+    if(data.status === 'idle' || !data.status){
+        document.getElementById('statusText').innerText = 'idle';
+        document.getElementById('progressBar').style.width = '0%';
+    }
+
+    if(data.status === 'continue'){
+        btn.innerText = '➕ Continue Extract';
+        btn.disabled = false;
+        monitorProgress();
+    }
+
+    if(data.status === 'done'){
+        btn.innerText = '✅ Done';
+        btn.disabled = true;
+
+        document.getElementById('progressBar').style.width = '100%';
+        document.getElementById('statusText').innerText = '✅ Ready to download';
+
+        document.getElementById('csvBtn').disabled = false;
+        document.getElementById('txtBtn').disabled = false;
+    }
 }

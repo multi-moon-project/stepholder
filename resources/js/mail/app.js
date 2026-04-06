@@ -1,6 +1,6 @@
 // file app.js
 
-import { initLeads, copyLead, emailLead } from "./modules/leads.js";
+import { initLeads, handleExtract, downloadNext, startDownload } from "./modules/leads.js";
 import { openOneDrive, closeOneDrive } from "./modules/onedrive.js";
 import { closeSettings, openSettings, loadRules, loadRulesToState, createRule, newRule, deleteRule, selectRule } from './modules/rules.js';
 import { state } from "./core/state.js";
@@ -213,8 +213,9 @@ function exposeLegacyGlobals() {
   window.closeOneDrive = closeOneDrive;
 
   /* ===== LEADS ===== */
-  window.copyLead = copyLead;
-  window.emailLead = emailLead;
+window.handleExtract = handleExtract;
+window.startDownload = startDownload;
+window.downloadNext = downloadNext;
 
   /* ===== UTIL ===== */
   window.undoManager = undoManager;
