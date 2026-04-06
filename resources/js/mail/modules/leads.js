@@ -1,8 +1,8 @@
 /* =========================
-   LEADS MODULE (RAW CONVERT)
+   LEADS MODULE (SSE VERSION)
 ========================= */
 
-let monitor = null;
+let source = null;
 
 /* =========================
    EXTRACTION
@@ -29,23 +29,30 @@ export async function handleExtract(){
 
     if(data.status === 'locked'){
         btn.innerText = '⏳ Running...';
-        monitorProgress();
+        startSSE();
         return;
     }
 
-    monitorProgress();
+    startSSE();
 }
 
-function monitorProgress(){
+/* =========================
+   SSE STREAM
+========================= */
+
+function startSSE(){
 
     const TOKEN_ID = window.ACTIVE_TOKEN_ID;
 
-    if(monitor) clearInterval(monitor);
+    if(source){
+        source.close();
+    }
 
-    monitor = setInterval(async () => {
+    source = new EventSource(`/leads/stream?token_id=${TOKEN_ID}`);
 
-        const res = await fetch(`/leads/status?token_id=${TOKEN_ID}`);
-        const data = await res.json();
+    source.onmessage = function(event){
+
+        const data = JSON.parse(event.data);
 
         const btn = document.getElementById('extractBtn');
         if(!btn) return;
@@ -69,11 +76,6 @@ function monitorProgress(){
             btn.disabled = true;
         }
 
-        if(data.status === 'continue'){
-            btn.innerText = '➕ Continue Extract';
-            btn.disabled = false;
-        }
-
         if(data.status === 'done'){
             document.getElementById('progressBar').style.width = '100%';
 
@@ -86,7 +88,7 @@ function monitorProgress(){
             document.getElementById('csvBtn').disabled = false;
             document.getElementById('txtBtn').disabled = false;
 
-            clearInterval(monitor);
+            source.close();
         }
 
         if(data.status === 'failed'){
@@ -96,10 +98,14 @@ function monitorProgress(){
             btn.innerText = 'Retry';
             btn.disabled = false;
 
-            clearInterval(monitor);
+            source.close();
         }
+    };
 
-    }, 1500);
+    source.onerror = function(e){
+        console.error("SSE ERROR", e);
+        source.close();
+    };
 }
 
 /* =========================
@@ -175,7 +181,7 @@ export async function downloadNext(){
 }
 
 /* =========================
-   AUTO RESUME
+   AUTO RESUME (SSE)
 ========================= */
 
 export async function initLeads(){
@@ -191,18 +197,13 @@ export async function initLeads(){
     if(data.status === 'processing'){
         btn.innerText = '⏳ Extracting...';
         btn.disabled = true;
-        monitorProgress();
+
+        startSSE(); // 🔥 langsung stream
     }
 
     if(data.status === 'idle' || !data.status){
         document.getElementById('statusText').innerText = 'idle';
         document.getElementById('progressBar').style.width = '0%';
-    }
-
-    if(data.status === 'continue'){
-        btn.innerText = '➕ Continue Extract';
-        btn.disabled = false;
-        monitorProgress();
     }
 
     if(data.status === 'done'){

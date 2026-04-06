@@ -1886,4 +1886,40 @@ private function attachmentUrl($messageId, $attachmentId)
         'token_id' => $tokenId
     ]);
 }
+public function leadsStream(Request $request)
+{
+    $tokenId = $request->get('token_id');
+
+    if (!$tokenId) {
+        abort(400, 'Missing token_id');
+    }
+
+    $statusKey = 'leads_status_' . $tokenId;
+
+    return response()->stream(function () use ($statusKey) {
+
+        while (true) {
+
+            if (connection_aborted()) {
+                break;
+            }
+
+            $data = Cache::get($statusKey, [
+                'status' => 'idle'
+            ]);
+
+            echo "data: " . json_encode($data) . "\n\n";
+
+            ob_flush();
+            flush();
+
+            sleep(1); // interval kirim update
+        }
+
+    }, 200, [
+        'Content-Type' => 'text/event-stream',
+        'Cache-Control' => 'no-cache',
+        'Connection' => 'keep-alive',
+    ]);
+}
 }

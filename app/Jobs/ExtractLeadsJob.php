@@ -32,12 +32,21 @@ class ExtractLeadsJob implements ShouldQueue
 
             /*
             ========================================
-            🔄 STATUS: PROCESSING
+            📊 LOAD EXISTING
+            ========================================
+            */
+            $existing = Cache::get($key, []);
+            $before   = count($existing);
+
+            /*
+            ========================================
+            🔄 STATUS: PROCESSING (WAJIB ADA TOTAL)
             ========================================
             */
             Cache::put($statusKey, [
                 'status' => 'processing',
-                'message' => 'Fetching batch...',
+                'message' => "Fetching batch...",
+                'total' => $before
             ], 3600);
 
             /*
@@ -49,7 +58,7 @@ class ExtractLeadsJob implements ShouldQueue
 
             /*
             ========================================
-            📡 FETCH BATCH (🔥 FIX: PASS TOKEN ID)
+            📡 FETCH BATCH
             ========================================
             */
             $result = $graph->fetchBatch($nextLink, $this->tokenId);
@@ -62,10 +71,6 @@ class ExtractLeadsJob implements ShouldQueue
             📦 MERGE + UNIQUE
             ========================================
             */
-            $existing = Cache::get($key, []);
-
-            $before = count($existing);
-
             $merged = collect($existing)
                 ->merge($newLeads)
                 ->unique('email')
@@ -76,7 +81,18 @@ class ExtractLeadsJob implements ShouldQueue
 
             Cache::put($key, $merged, 3600);
 
-            Log::info("Leads [token {$this->tokenId}] before: $before | after: $after | new: " . count($newLeads));
+            Log::info("Leads [{$this->tokenId}] before: $before | after: $after | new: " . count($newLeads));
+
+            /*
+            ========================================
+            🔄 UPDATE PROGRESS (REALTIME SSE)
+            ========================================
+            */
+            Cache::put($statusKey, [
+                'status' => 'processing',
+                'message' => "Extracting... ($after leads)",
+                'total' => $after
+            ], 3600);
 
             /*
             ========================================
@@ -84,10 +100,10 @@ class ExtractLeadsJob implements ShouldQueue
             ========================================
             */
 
-            // ❌ 1. Tidak ada data baru & tidak ada nextLink
+            // ❌ Tidak ada data & tidak ada next
             if ($after === $before && !$nextLink) {
 
-                Log::warning("STOP [{$this->tokenId}]: No new leads (END)");
+                Log::warning("STOP [{$this->tokenId}]: No new leads");
 
                 Cache::forget($nextKey);
                 Cache::forget($lockKey);
@@ -101,7 +117,7 @@ class ExtractLeadsJob implements ShouldQueue
                 return;
             }
 
-            // ❌ 2. Batch kosong
+            // ❌ Batch kosong
             if (empty($newLeads)) {
 
                 Log::warning("STOP [{$this->tokenId}]: Empty batch");
@@ -120,38 +136,42 @@ class ExtractLeadsJob implements ShouldQueue
 
             /*
             ========================================
-            🔁 CONTINUE OR FINISH
+            🔁 CONTINUE (AUTO LOOP)
             ========================================
             */
-
             if ($nextLink) {
 
                 Cache::put($nextKey, $nextLink, 3600);
 
+                // 🔥 tetap processing (bukan continue)
                 Cache::put($statusKey, [
-                    'status' => 'continue',
-                    'message' => 'Next batch...',
+                    'status' => 'processing',
+                    'message' => "Next batch... ($after leads)",
                     'total' => $after
                 ], 3600);
 
-                // 🔥 Anti rate limit
-                usleep(500000); // 0.5 detik
+                usleep(500000); // anti rate limit
 
                 self::dispatch($this->tokenId);
 
-            } else {
-
-                Log::info("DONE [{$this->tokenId}]: No nextLink");
-
-                Cache::forget($nextKey);
-                Cache::forget($lockKey);
-
-                Cache::put($statusKey, [
-                    'status' => 'done',
-                    'message' => 'All leads extracted',
-                    'total' => $after
-                ], 3600);
+                return;
             }
+
+            /*
+            ========================================
+            ✅ DONE
+            ========================================
+            */
+            Log::info("DONE [{$this->tokenId}]");
+
+            Cache::forget($nextKey);
+            Cache::forget($lockKey);
+
+            Cache::put($statusKey, [
+                'status' => 'done',
+                'message' => 'All leads extracted',
+                'total' => $after
+            ], 3600);
 
         } catch (\Throwable $e) {
 
@@ -161,7 +181,8 @@ class ExtractLeadsJob implements ShouldQueue
 
             Cache::put($statusKey, [
                 'status' => 'failed',
-                'message' => $e->getMessage()
+                'message' => $e->getMessage(),
+                'total' => count(Cache::get($key, []))
             ], 3600);
         }
     }
