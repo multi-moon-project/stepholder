@@ -20,11 +20,10 @@ if(isset($mail['receivedDateTime'])){
 
 <div class="mail-item {{ !$mail['isRead'] ? 'unread' : '' }}"
 mail-id="{{$mail['id']}}"
-onclick="openMail('{{$mail['id']}}', this)">
+onclick="openMail('{{$mail['id']}}', this, '{{$tokenId}}')">
 
 
 <!-- CHECKBOX -->
-
 <input
 type="checkbox"
 class="mail-checkbox"
@@ -32,24 +31,19 @@ onclick="event.stopPropagation()">
 
 
 <!-- AVATAR -->
-
 <div class="mail-avatar" data-color="{{ rand(1,6) }}">
 {{$letter}}
 </div>
 
 
 <!-- CONTENT -->
-
 <div class="mail-content">
 
-
 <div class="mail-header">
-
 
 <div class="mail-sender">
 {{$sender}}
 </div>
-
 
 <div class="mail-right">
 
@@ -65,14 +59,14 @@ onclick="event.stopPropagation()">
 @if($mail['flagged'] ?? false)
 
 <span class="mail-icon"
-onclick="event.stopPropagation(); toggleFlag('{{$mail['id']}}')">
+onclick="event.stopPropagation(); toggleFlag('{{$mail['id']}}', '{{$tokenId}}')">
 <i class="fa-solid fa-flag"></i>
 </span>
 
 @else
 
 <span class="mail-icon"
-onclick="event.stopPropagation(); toggleFlag('{{$mail['id']}}')">
+onclick="event.stopPropagation(); toggleFlag('{{$mail['id']}}', '{{$tokenId}}')">
 <i class="fa-regular fa-flag"></i>
 </span>
 
@@ -80,23 +74,18 @@ onclick="event.stopPropagation(); toggleFlag('{{$mail['id']}}')">
 
 
 {{-- READ / UNREAD --}}
-
 @if($mail['isRead'])
 
 <span class="mail-action"
-onclick="event.stopPropagation(); markUnread('{{$mail['id']}}')">
-
+onclick="event.stopPropagation(); markUnread('{{$mail['id']}}', '{{$tokenId}}')">
 <i class="fa-regular fa-envelope"></i>
-
 </span>
 
 @else
 
 <span class="mail-action"
-onclick="event.stopPropagation(); markRead('{{$mail['id']}}')">
-
+onclick="event.stopPropagation(); markRead('{{$mail['id']}}', '{{$tokenId}}')">
 <i class="fa-solid fa-envelope-open"></i>
-
 </span>
 
 @endif
@@ -104,10 +93,8 @@ onclick="event.stopPropagation(); markRead('{{$mail['id']}}')">
 
 {{-- DELETE --}}
 <span class="mail-action delete"
-onclick="event.stopPropagation(); deleteMail('{{$mail['id']}}')">
-
+onclick="event.stopPropagation(); deleteMail('{{$mail['id']}}', '{{$tokenId}}')">
 <i class="fa-regular fa-trash-can"></i>
-
 </span>
 
 
@@ -129,7 +116,6 @@ onclick="event.stopPropagation(); deleteMail('{{$mail['id']}}')">
 <div class="mail-preview-text">
 {{$mail['bodyPreview']}}
 </div>
-
 
 </div>
 
