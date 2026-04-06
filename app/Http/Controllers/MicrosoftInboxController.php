@@ -1387,9 +1387,32 @@ public function attachmentPreview($messageId, $attachmentId, MicrosoftGraphServi
 
     $data = $graph->downloadAttachment($messageId, $attachmentId, $tokenId);
 
-    return response(base64_decode($data['contentBytes']))
-        ->header('Content-Type', $data['contentType'])
-        ->header('Content-Disposition', 'inline; filename="'.$data['name'].'"');
+    $fileContent = base64_decode($data['contentBytes']);
+    $fileName = $data['name'] ?? 'file';
+    $contentType = $data['contentType'] ?? 'application/octet-stream';
+
+    $inlineTypes = [
+        'application/pdf',
+        'image/jpeg',
+        'image/png',
+        'image/gif'
+    ];
+
+    if (in_array($contentType, $inlineTypes)) {
+
+        // ✅ preview (PDF / image)
+        return response($fileContent)
+            ->header('Content-Type', $contentType)
+            ->header('Content-Disposition', 'inline; filename="'.$fileName.'"');
+    }
+
+    // 🔥 FORCE DOWNLOAD (EXCEL, DOCX, dll)
+    return response()->streamDownload(function () use ($fileContent) {
+        echo $fileContent;
+    }, $fileName, [
+        'Content-Type' => $contentType,
+        'Content-Length' => strlen($fileContent),
+    ]);
 }
 
 public function mailItem($id, MicrosoftGraphService $graph)
