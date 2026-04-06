@@ -226,7 +226,7 @@ export async function initRealtime() {
 MAIN CHECK
 ====================== */
 export async function checkNewMail() {
-  if (running || Date.now() - lastRun < 5000) return;
+  if (running) return;
   running = true;
 
   try {
