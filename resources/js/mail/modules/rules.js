@@ -2,6 +2,13 @@ import { state } from "../core/state";
 import { safeFetch } from "../core/api";
 
 /* ======================
+🔥 TOKEN HELPER (FIX MULTI ACCOUNT)
+====================== */
+function getTokenId() {
+  return window.ACTIVE_TOKEN_ID || state.tokenId;
+}
+
+/* ======================
 HELPER: EXTRACT EMAIL
 ====================== */
 function extractEmail(raw) {
@@ -100,8 +107,10 @@ export async function loadRules() {
   el.innerHTML = "Loading...";
 
   try {
+    const tokenId = getTokenId();
+
     const res = await safeFetch(
-      "/settings/rules?token_id=" + encodeURIComponent(state.tokenId)
+      "/settings/rules?token_id=" + encodeURIComponent(tokenId)
     );
 
     const html = await res.text();
@@ -117,8 +126,10 @@ LOAD RULES TO STATE
 ====================== */
 export async function loadRulesToState() {
   try {
+    const tokenId = getTokenId();
+
     const res = await safeFetch(
-      "/rules/json?token_id=" + encodeURIComponent(state.tokenId)
+      "/rules/json?token_id=" + encodeURIComponent(tokenId)
     );
 
     const data = await res.json();
@@ -143,9 +154,12 @@ CREATE / UPDATE RULE
 ====================== */
 export async function createRule() {
 
+  const tokenId = getTokenId();
+
   const id = document.getElementById("editingRuleId")?.value;
 
   const payload = {
+    token_id: tokenId, // 🔥 FIX
     displayName: document.getElementById("ruleName")?.value,
     conditionType: document.getElementById("conditionType")?.value,
     conditionValue: document.getElementById("conditionValue")?.value,
@@ -160,17 +174,14 @@ export async function createRule() {
 
   const method = id ? "PUT" : "POST";
 
-  await safeFetch(
-    url + "?token_id=" + encodeURIComponent(state.tokenId),
-    {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    }
-  );
+  await safeFetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
 
-  loadRules();
-  loadRulesToState();
+  await loadRules();
+  await loadRulesToState();
 }
 
 /* ======================
@@ -180,8 +191,10 @@ export async function deleteRule(id) {
   if (!confirm("Delete this rule?")) return;
 
   try {
+    const tokenId = getTokenId();
+
     await safeFetch(
-      `/settings/rules/${id}?token_id=${state.tokenId}`,
+      `/settings/rules/${id}?token_id=${tokenId}`,
       { method: "DELETE" }
     );
 
@@ -288,9 +301,20 @@ export function newRule() {
 }
 
 /* ======================
-SELECT RULE (EDIT)
+SELECT RULE (FIX JSON STRING)
 ====================== */
-export function selectRule(rule) {
+export function selectRule(ruleJson) {
+
+  let rule;
+
+  try {
+    rule = typeof ruleJson === "string"
+      ? JSON.parse(ruleJson)
+      : ruleJson;
+  } catch (e) {
+    console.error("Invalid rule JSON", e);
+    return;
+  }
 
   document.getElementById("editingRuleId").value = rule.id;
   document.getElementById("ruleName").value = rule.name;

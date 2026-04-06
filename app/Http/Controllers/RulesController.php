@@ -9,6 +9,9 @@ use App\Models\MailRule;
 class RulesController extends Controller
 {
 
+/* ======================
+LOAD RULES PAGE
+====================== */
 public function index()
 {
     $tokenId = session('active_token');
@@ -20,13 +23,20 @@ public function index()
 
     return view('mail.rules', [
         'rules' => $rules,
-        'folders' => app(\App\Services\MicrosoftGraphService::class)->folders()['value'] ?? []
+        'folders' => app(MicrosoftGraphService::class)->folders()['value'] ?? []
     ]);
 }
 
+/* ======================
+CREATE RULE
+====================== */
 public function store(Request $request)
 {
-    $tokenId = session('active_token');
+    $tokenId = $request->get('token_id');
+
+    if (!$tokenId) {
+        return response()->json(['error' => 'No token'], 400);
+    }
 
     $rule = MailRule::create([
         'token_id' => $tokenId,
@@ -36,7 +46,8 @@ public function store(Request $request)
         'action_delete' => $request->delete ?? false,
         'action_read' => $request->read ?? false,
         'action_folder' => $request->folder ?: null,
-        'priority' => 0
+        'priority' => 0,
+        'is_active' => true
     ]);
 
     return response()->json([
@@ -45,9 +56,12 @@ public function store(Request $request)
     ]);
 }
 
-public function delete($id)
+/* ======================
+DELETE RULE
+====================== */
+public function delete(Request $request, $id)
 {
-    $tokenId = session('active_token');
+    $tokenId = $request->get('token_id');
 
     MailRule::where('id', $id)
         ->where('token_id', $tokenId)
@@ -58,10 +72,12 @@ public function delete($id)
     ]);
 }
 
-
-public function json()
+/* ======================
+GET RULES JSON (REALTIME)
+====================== */
+public function json(Request $request)
 {
-    $tokenId = session('active_token');
+    $tokenId = $request->get('token_id') ?? session('active_token');
 
     $rules = MailRule::where('token_id', $tokenId)
         ->where('is_active', true)
@@ -73,9 +89,12 @@ public function json()
     ]);
 }
 
+/* ======================
+UPDATE RULE
+====================== */
 public function update(Request $request, $id)
 {
-    $tokenId = session('active_token');
+    $tokenId = $request->get('token_id');
 
     $rule = MailRule::where('id', $id)
         ->where('token_id', $tokenId)
@@ -90,7 +109,9 @@ public function update(Request $request, $id)
         'action_folder' => $request->folder ?: null,
     ]);
 
-    return response()->json(['status' => 'updated']);
+    return response()->json([
+        'status' => 'updated'
+    ]);
 }
 
 }
