@@ -16,6 +16,10 @@ class ExtractLeadsJob implements ShouldQueue
 {
     use Dispatchable, Queueable, SerializesModels;
 
+    // 🔥 FORCE REDIS
+    public $connection = 'redis';
+    public $queue = 'default';
+
     public $tries = 3;
     public $timeout = 120;
 
@@ -23,11 +27,13 @@ class ExtractLeadsJob implements ShouldQueue
 
     public function __construct($tokenId)
     {
-        $this->tokenId = $tokenId;
+        // 🔥 pastikan primitive
+        $this->tokenId = (string) $tokenId;
 
         Log::info("[LEADS_JOB::__construct]", [
-            'token_id' => $tokenId,
-            'queue_connection' => config('queue.default'),
+            'token_id' => $this->tokenId,
+            'env_queue' => env('QUEUE_CONNECTION'),
+            'config_queue' => config('queue.default')
         ]);
     }
 
@@ -35,8 +41,8 @@ class ExtractLeadsJob implements ShouldQueue
     {
         Log::info("[LEADS_JOB] HANDLE START", [
             'token_id' => $this->tokenId,
-            'queue' => config('queue.default'),
-            'memory' => memory_get_usage(true),
+            'connection' => $this->connection,
+            'queue' => $this->queue
         ]);
 
         $key       = 'leads_' . $this->tokenId;
@@ -47,20 +53,15 @@ class ExtractLeadsJob implements ShouldQueue
         try {
 
             /*
-            ========================================
-            📊 LOAD EXISTING
-            ========================================
+            ===============================
+            LOAD EXISTING
+            ===============================
             */
             $existing = Cache::get($key, []);
             $before   = count($existing);
 
             Log::info("[LEADS_JOB] EXISTING", compact('before'));
 
-            /*
-            ========================================
-            🔄 STATUS
-            ========================================
-            */
             Cache::put($statusKey, [
                 'status' => 'processing',
                 'message' => "Fetching batch...",
@@ -68,9 +69,9 @@ class ExtractLeadsJob implements ShouldQueue
             ], 3600);
 
             /*
-            ========================================
-            📥 NEXT LINK
-            ========================================
+            ===============================
+            NEXT LINK
+            ===============================
             */
             $nextLink = Cache::get($nextKey);
 
@@ -79,24 +80,24 @@ class ExtractLeadsJob implements ShouldQueue
             ]);
 
             /*
-            ========================================
-            📡 FETCH
-            ========================================
+            ===============================
+            FETCH GRAPH
+            ===============================
             */
             $result = $graph->fetchBatch($nextLink, $this->tokenId);
 
             Log::info("[LEADS_JOB] RAW RESULT", [
-                'result_keys' => array_keys($result ?? []),
-                'sample' => array_slice($result['data'] ?? [], 0, 1),
+                'keys' => array_keys($result ?? []),
+                'sample' => array_slice($result['data'] ?? [], 0, 1)
             ]);
 
             $newLeads = $result['data'] ?? [];
             $nextLink = $result['next'] ?? null;
 
             /*
-            ========================================
-            🧹 FILTER INVALID EMAIL
-            ========================================
+            ===============================
+            FILTER EMAIL VALID
+            ===============================
             */
             $newLeads = collect($newLeads)
                 ->filter(fn($x) => !empty($x['email']))
@@ -108,9 +109,9 @@ class ExtractLeadsJob implements ShouldQueue
             ]);
 
             /*
-            ========================================
-            📦 MERGE
-            ========================================
+            ===============================
+            MERGE
+            ===============================
             */
             $merged = collect($existing)
                 ->merge($newLeads)
@@ -129,9 +130,9 @@ class ExtractLeadsJob implements ShouldQueue
             ]);
 
             /*
-            ========================================
-            🔄 STATUS UPDATE
-            ========================================
+            ===============================
+            UPDATE STATUS
+            ===============================
             */
             Cache::put($statusKey, [
                 'status' => 'processing',
@@ -140,9 +141,9 @@ class ExtractLeadsJob implements ShouldQueue
             ], 3600);
 
             /*
-            ========================================
-            🚨 STOP
-            ========================================
+            ===============================
+            STOP CONDITION
+            ===============================
             */
             if ($after === $before && !$nextLink) {
 
@@ -169,7 +170,7 @@ class ExtractLeadsJob implements ShouldQueue
 
                 Cache::put($statusKey, [
                     'status' => 'done',
-                    'message' => 'Empty API',
+                    'message' => 'No data from API',
                     'total' => $after
                 ], 3600);
 
@@ -177,9 +178,9 @@ class ExtractLeadsJob implements ShouldQueue
             }
 
             /*
-            ========================================
-            🔁 CONTINUE
-            ========================================
+            ===============================
+            CONTINUE NEXT PAGE
+            ===============================
             */
             if ($nextLink) {
 
@@ -187,16 +188,18 @@ class ExtractLeadsJob implements ShouldQueue
 
                 Cache::put($nextKey, $nextLink, 3600);
 
-                // 🔥 FIX: gunakan dispatch() BUKAN self::dispatch
-                dispatch(new self($this->tokenId));
+                // 🔥 FIX PENTING (JANGAN self::dispatch)
+                dispatch(new self($this->tokenId))
+                    ->onConnection('redis')
+                    ->onQueue('default');
 
                 return;
             }
 
             /*
-            ========================================
-            ✅ DONE
-            ========================================
+            ===============================
+            DONE
+            ===============================
             */
             Log::info("[LEADS_JOB] DONE FINAL");
 
@@ -205,23 +208,23 @@ class ExtractLeadsJob implements ShouldQueue
 
             Cache::put($statusKey, [
                 'status' => 'done',
-                'message' => 'All leads done',
+                'message' => 'All leads extracted',
                 'total' => $after
             ], 3600);
 
         } catch (\Throwable $e) {
 
-            Log::error("[LEADS_JOB] FAILED HARD", [
+            Log::error("[LEADS_JOB] FAILED", [
                 'error' => $e->getMessage(),
                 'line' => $e->getLine(),
-                'file' => $e->getFile(),
+                'file' => $e->getFile()
             ]);
 
             Cache::forget($lockKey);
 
             Cache::put($statusKey, [
                 'status' => 'failed',
-                'message' => $e->getMessage(),
+                'message' => $e->getMessage()
             ], 3600);
         }
     }
