@@ -132,61 +132,19 @@ return view('mail.attachments',compact('attachments','id'));
 
 
 
-public function downloadAttachment($messageId, $attachmentId, MicrosoftGraphService $graph)
+public function downloadAttachment($messageId,$attachmentId, MicrosoftGraphService $graph)
 {
-    $tokenId = request()->query('token_id') 
-        ?? request()->input('token_id');
 
-    if (!$tokenId) {
-        abort(403, 'Missing token_id');
-    }
+$tokenId = request('token_id');
 
-    $data = $graph->downloadAttachment($messageId, $attachmentId, $tokenId);
+$data = $graph->downloadAttachment($messageId,$attachmentId,$tokenId);
 
-    if (empty($data['contentBytes'])) {
-        abort(404, 'Attachment not found');
-    }
+$file = base64_decode($data['contentBytes']);
 
-    $fileContent = base64_decode($data['contentBytes']);
+return response($file)
+->header('Content-Type',$data['contentType'])
+->header('Content-Disposition','attachment; filename="'.$data['name'].'"');
 
-    $fileName = $data['name'] ?? 'file';
-    $contentType = $data['contentType'] ?? 'application/octet-stream';
-
-    /*
-    ======================================
-    🔥 FIX EXTENSION (WAJIB)
-    ======================================
-    */
-
-    if (!str_contains($fileName, '.')) {
-
-        $map = [
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
-            'application/vnd.ms-excel' => 'xls',
-            'application/pdf' => 'pdf',
-            'image/jpeg' => 'jpg',
-            'image/png' => 'png',
-            'text/plain' => 'txt',
-        ];
-
-        $ext = $map[$contentType] ?? 'bin';
-
-        $fileName .= '.' . $ext;
-    }
-
-    /*
-    ======================================
-    🔥 HEADER FIX (INI KUNCI UTAMA)
-    ======================================
-    */
-
-    return response($fileContent, 200, [
-        'Content-Type' => $contentType,
-        'Content-Disposition' => 'attachment; filename="'.$fileName.'"',
-        'Content-Length' => strlen($fileContent),
-        'Cache-Control' => 'no-store, no-cache, must-revalidate',
-        'Pragma' => 'no-cache',
-    ]);
 }
 
 
