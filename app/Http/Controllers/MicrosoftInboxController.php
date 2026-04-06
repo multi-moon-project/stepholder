@@ -1533,27 +1533,51 @@ private function extractBodyContent($html)
 
 private function replaceCidImages($html, $attachments, $messageId)
 {
+    if (!$html || empty($attachments)) {
+        return $html;
+    }
+
+    // 🔥 ambil token_id dari request (NO SESSION)
+    $tokenId = request('token_id');
+
     return preg_replace_callback(
         '/cid:([^"\'>]+)/i',
-        function($matches) use ($attachments, $messageId){
+        function ($matches) use ($attachments, $messageId, $tokenId) {
 
-            $cid = strtolower(trim($matches[1], '<>'));
+            // 🔥 normalize CID dari HTML
+            $cid = strtolower(trim($matches[1] ?? '', '<> '));
 
-            foreach($attachments as $att){
+            if (!$cid) {
+                return $matches[0];
+            }
 
-                $contentId = strtolower(trim($att['contentId'] ?? '', '<>'));
+            foreach ($attachments as $att) {
 
-                if(!$contentId) continue;
+                // 🔥 normalize contentId dari attachment
+                $contentId = strtolower(trim($att['contentId'] ?? '', '<> '));
 
-                if(str_contains($cid, $contentId) || str_contains($contentId, $cid)){
-                    
+                if (!$contentId) continue;
+
+                /*
+                =====================================
+                FLEXIBLE MATCH (OUTLOOK CID RANDOM)
+                =====================================
+                */
+                if (
+                    str_contains($cid, $contentId) ||
+                    str_contains($contentId, $cid)
+                ) {
+
+                    // 🔥 RETURN URL PREVIEW (INLINE IMAGE)
                     return route('mail.attachment.preview', [
-                        'messageId' => $messageId,
-                        'attachmentId' => $att['id']
+                        'messageId'    => $messageId,
+                        'attachmentId' => $att['id'],
+                        'token_id'     => $tokenId // 🔥 WAJIB
                     ]);
                 }
             }
 
+            // fallback kalau tidak ketemu
             return $matches[0];
         },
         $html
