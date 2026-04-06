@@ -188,7 +188,15 @@ return view('mail.inbox', [
 
 public function folder($folder, Request $request, MicrosoftGraphService $graph)
 {
+    if (!preg_match('/^[A-Za-z0-9\-_=\+\/]+$/', $folder)) {
+    abort(400, 'Invalid folder ID');
+}
     $tokenId = $request->token_id; // ✅ NO SESSION
+
+    Log::info("FOLDER OPEN", [
+    'folder' => $folder,
+    'token' => $tokenId
+]);
     
 
    if (!$tokenId) {

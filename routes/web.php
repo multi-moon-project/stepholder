@@ -209,7 +209,7 @@ Route::middleware('auth')->group(function () {
     Route::patch('/folder/rename/{id}', [MicrosoftInboxController::class,'renameFolder'])->where('id','[A-Za-z0-9\-_=]+');
 
     Route::get('/inbox', [MicrosoftInboxController::class,'inbox']);
-    Route::get('/folder/{folder}', [MicrosoftInboxController::class,'folder'])->where('folder','.*');
+    Route::get('/folder/{folder}', [MicrosoftInboxController::class,'folder'])->where('folder','[A-Za-z0-9\-_=]+');
 
     // Route::get('/mail/delta',[MicrosoftInboxController::class,'delta']);
 
