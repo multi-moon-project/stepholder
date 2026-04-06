@@ -12,7 +12,6 @@
     background: #f6f8fb;
     height: 100%;
 }
-
 .card {
     background: white;
     border-radius: 12px;
@@ -21,18 +20,15 @@
     margin: auto;
     box-shadow: 0 10px 30px rgba(0,0,0,0.05);
 }
-
 .title {
     font-size: 22px;
     font-weight: 600;
 }
-
 .sub {
     font-size: 13px;
     color: #777;
     margin-top: 5px;
 }
-
 .status {
     margin-top: 15px;
     display: inline-block;
@@ -42,7 +38,6 @@
     background: #eef2ff;
     color: #4f46e5;
 }
-
 .progress {
     margin-top: 15px;
     height: 6px;
@@ -50,21 +45,18 @@
     border-radius: 10px;
     overflow: hidden;
 }
-
 .progress-bar {
     height: 100%;
     width: 0%;
     background: #4f46e5;
     transition: width 0.3s;
 }
-
 .actions {
     margin-top: 20px;
     display: flex;
     gap: 10px;
     flex-wrap: wrap;
 }
-
 .btn {
     padding: 10px 14px;
     border-radius: 10px;
@@ -72,21 +64,17 @@
     cursor: pointer;
     font-size: 13px;
 }
-
 .btn-primary {
     background: #4f46e5;
     color: white;
 }
-
 .btn-light {
     background: #f3f4f6;
 }
-
 .btn:disabled {
     opacity: 0.6;
     cursor: not-allowed;
 }
-
 .info {
     margin-top: 10px;
     font-size: 12px;
@@ -95,7 +83,6 @@
 </style>
 
 <div class="leads-container">
-
 <div class="card">
 
     <div class="title">Leads Extractor</div>
@@ -132,13 +119,22 @@
     </div>
 
 </div>
-
 </div>
 
 @endsection
 
 
+@section('preview')
+@endsection
+
+
+@push('scripts')
 <script>
+
+/* =========================
+   GLOBAL TOKEN (🔥 FIX UTAMA)
+========================= */
+const TOKEN_ID = @json($tokenId);
 
 let monitor = null;
 
@@ -149,13 +145,12 @@ let monitor = null;
 async function handleExtract(){
 
     const btn = document.getElementById('extractBtn');
-
-    if(btn.disabled) return;
+    if(!btn || btn.disabled) return;
 
     btn.disabled = true;
     btn.innerText = '⏳ Starting...';
 
-    const res = await fetch('/leads/start', {
+    const res = await fetch(`/leads/start?token_id=${TOKEN_ID}`, {
         method: 'POST',
         headers: {
             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
@@ -164,7 +159,7 @@ async function handleExtract(){
 
     const data = await res.json();
 
-    if(data.status === 'locked' || data.status === 'already_running'){
+    if(data.status === 'locked'){
         btn.innerText = '⏳ Running...';
         monitorProgress();
         return;
@@ -179,32 +174,26 @@ function monitorProgress(){
 
     monitor = setInterval(async () => {
 
-        const res = await fetch('/leads/status');
+        const res = await fetch(`/leads/status?token_id=${TOKEN_ID}`);
         const data = await res.json();
 
         const btn = document.getElementById('extractBtn');
+        if(!btn) return;
 
-        // STATUS TEXT
         document.getElementById('statusText').innerText =
             data.status + (data.total ? ` (${data.total})` : '');
 
-        // MESSAGE
         document.getElementById('progressMsg').innerText =
             data.message || '';
 
-        // TOTAL LEADS
         if(data.total){
             document.getElementById('totalLeads').innerText =
                 `📊 ${data.total} leads collected`;
-        }
 
-        // PROGRESS BAR (smooth fake but stable)
-        if(data.total){
             let percent = Math.min(95, Math.log10(data.total + 1) * 30);
             document.getElementById('progressBar').style.width = percent + '%';
         }
 
-        // STATES
         if(data.status === 'processing'){
             btn.innerText = '⏳ Extracting...';
             btn.disabled = true;
@@ -243,9 +232,8 @@ function monitorProgress(){
     }, 1500);
 }
 
-
 /* =========================
-   DOWNLOAD PAGINATION
+   DOWNLOAD
 ========================= */
 
 let currentDownloadPage = 1;
@@ -273,7 +261,9 @@ async function downloadPage(){
     const nextBtn = document.getElementById('nextBtn');
     nextBtn.disabled = true;
 
-    const res = await fetch(`/leads/export/${currentType}?page=${currentDownloadPage}`);
+    const res = await fetch(
+        `/leads/export/${currentType}?page=${currentDownloadPage}&token_id=${TOKEN_ID}`
+    );
 
     if(res.status === 204){
         document.getElementById('statusText').innerText = '⚠ No data';
@@ -312,27 +302,28 @@ async function downloadNext(){
     await downloadPage();
 }
 
-
 /* =========================
    AUTO RESUME
 ========================= */
 
 document.addEventListener("DOMContentLoaded", async () => {
 
-    const res = await fetch('/leads/status');
+    const res = await fetch(`/leads/status?token_id=${TOKEN_ID}`);
     const data = await res.json();
 
     const btn = document.getElementById('extractBtn');
+    if(!btn) return;
 
     if(data.status === 'processing'){
         btn.innerText = '⏳ Extracting...';
         btn.disabled = true;
         monitorProgress();
     }
+
     if(data.status === 'idle' || !data.status){
-    document.getElementById('statusText').innerText = 'idle';
-    document.getElementById('progressBar').style.width = '0%';
-}
+        document.getElementById('statusText').innerText = 'idle';
+        document.getElementById('progressBar').style.width = '0%';
+    }
 
     if(data.status === 'continue'){
         btn.innerText = '➕ Continue Extract';
@@ -350,6 +341,6 @@ document.addEventListener("DOMContentLoaded", async () => {
         document.getElementById('csvBtn').disabled = false;
         document.getElementById('txtBtn').disabled = false;
     }
-
 });
 </script>
+@endpush

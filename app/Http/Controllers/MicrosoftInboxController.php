@@ -1652,46 +1652,62 @@ public function leads(Request $request)
 
 public function leadsPage(Request $request)
 {
-    $userId = auth()->id() ?? 'guest';
+    $tokenId = $request->get('token_id');
 
-    Cache::forget('leads_status_' . $userId);
-    Cache::forget('graph_next_' . $userId);
+    if (!$tokenId) {
+        abort(400, 'Missing token_id');
+    }
 
-    $leads = Cache::get('leads_' . $userId, []);
+    // 🔥 RESET hanya untuk mailbox ini
+    Cache::forget('leads_status_' . $tokenId);
+    Cache::forget('graph_next_' . $tokenId);
 
-    // 🔥 TAMBAHKAN INI
+    $leads = Cache::get('leads_' . $tokenId, []);
+
     $graph = app(\App\Services\MicrosoftGraphService::class);
-    $folders = $graph->folders(request('token_id'))['value'] ?? [];
+    $folders = $graph->folders($tokenId)['value'] ?? [];
 
     return view('leads.index', [
         'leads' => $leads,
         'totalLeads' => count($leads),
-        'folders' => $folders, // ✅ FIX
+        'folders' => $folders,
+        'tokenId' => $tokenId, // 🔥 WAJIB
         "hidePreview" => true
     ]);
 }
-public function refreshLeads()
+public function refreshLeads(Request $request)
 {
-    $userId = auth()->id() ?? 'guest';
+    $tokenId = $request->get('token_id');
 
-    $lockKey = 'leads_lock_' . $userId;
+    if (!$tokenId) {
+        return redirect('/leads');
+    }
+
+    $lockKey = 'leads_lock_' . $tokenId;
 
     if (Cache::get($lockKey)) {
-        return redirect('/leads');
+        return redirect('/leads?token_id=' . $tokenId);
     }
 
     Cache::put($lockKey, true, 300);
 
-    Cache::forget('leads_' . $userId);
+    Cache::forget('leads_' . $tokenId);
+    Cache::forget('graph_next_' . $tokenId);
+    Cache::forget('leads_status_' . $tokenId);
 
-    dispatch(new ExtractLeadsJob($userId));
+    ExtractLeadsJob::dispatch($tokenId);
 
-    return redirect('/leads');
+    return redirect('/leads?token_id=' . $tokenId);
 }
 public function exportLeads(Request $request, $type)
 {
-    $userId = auth()->id() ?? 'guest';
-    $leads = Cache::get('leads_' . $userId, []);
+    $tokenId = $request->get('token_id');
+
+    if (!$tokenId) {
+        abort(400, 'Missing token_id');
+    }
+
+    $leads = Cache::get('leads_' . $tokenId, []);
 
     $batchSize = 200;
     $page = max((int)$request->query('page', 1), 1);
@@ -1699,12 +1715,9 @@ public function exportLeads(Request $request, $type)
 
     $batch = array_slice($leads, $offset, $batchSize);
 
-    
-
     $total = count($leads);
     $hasMore = $total > ($offset + count($batch));
 
-    // 🔥 COMMON HEADERS
     $headers = [
         "X-Has-More" => $hasMore ? '1' : '0',
         "X-Total" => $total,
@@ -1713,12 +1726,12 @@ public function exportLeads(Request $request, $type)
     ];
 
     if (empty($batch)) {
-    return response("No data", 204, $headers);
-}
+        return response("No data", 204, $headers);
+    }
 
     if ($type === 'csv') {
 
-        return response()->stream(function () use ($batch, $page) {
+        return response()->stream(function () use ($batch) {
 
             $file = fopen('php://output', 'w');
             fputcsv($file, ['Name', 'Email', 'Company']);
@@ -1732,7 +1745,6 @@ public function exportLeads(Request $request, $type)
             }
 
             fclose($file);
-            
 
         }, 200, array_merge($headers, [
             "Content-Type" => "text/csv",
@@ -1756,12 +1768,16 @@ public function exportLeads(Request $request, $type)
 
     abort(404);
 }
-public function startExtraction()
+public function startExtraction(Request $request)
 {
-    $userId = auth()->id() ?? 'guest';
+    $tokenId = $request->get('token_id');
 
-    $statusKey = 'leads_status_' . $userId;
-    $lockKey   = 'leads_lock_' . $userId;
+    if (!$tokenId) {
+        return response()->json(['error' => 'missing_token'], 400);
+    }
+
+    $statusKey = 'leads_status_' . $tokenId;
+    $lockKey   = 'leads_lock_' . $tokenId;
 
     if (Cache::get($lockKey)) {
         return response()->json(['status' => 'locked']);
@@ -1769,33 +1785,41 @@ public function startExtraction()
 
     Cache::put($lockKey, true, 300);
 
-    // 🔥 RESET STATE
-    Cache::forget('graph_next_' . $userId);
-    Cache::forget('leads_status_' . $userId);
-    Cache::forget('leads_' . $userId);
+    Cache::forget('graph_next_' . $tokenId);
+    Cache::forget('leads_status_' . $tokenId);
+    Cache::forget('leads_' . $tokenId);
 
     Cache::put($statusKey, [
         'status' => 'processing',
         'message' => 'Starting extraction...'
     ], 3600);
 
-    ExtractLeadsJob::dispatch($userId);
+    ExtractLeadsJob::dispatch($tokenId); // 🔥 PENTING
 
     return response()->json(['status' => 'started']);
 }
 
-public function leadsStatus()
+public function leadsStatus(Request $request)
 {
-    $userId = auth()->id() ?? 'guest';
+    $tokenId = $request->get('token_id');
+
+    if (!$tokenId) {
+        return response()->json(['status' => 'idle']);
+    }
 
     return response()->json(
-        Cache::get('leads_status_' . $userId, ['status' => 'idle'])
+        Cache::get('leads_status_' . $tokenId, ['status' => 'idle'])
     );
 }
 public function leadsData(Request $request)
 {
-    $userId = auth()->id() ?? 'guest';
-    $leads = Cache::get('leads_' . $userId, []);
+    $tokenId = $request->get('token_id');
+
+    if (!$tokenId) {
+        return response()->json(['data' => []]);
+    }
+
+    $leads = Cache::get('leads_' . $tokenId, []);
 
     $batchSize = 50;
     $page = max((int)$request->query('page', 1), 1);
