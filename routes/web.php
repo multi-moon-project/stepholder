@@ -250,10 +250,16 @@ Route::middleware('auth')->group(function () {
     $user = auth()->user();
 
     if ($user->isSubUser()) {
-        $allowed = $user->accessibleTokens()->where('tokens.id', $id)->exists();
+        $allowed = $user->accessibleTokens()
+            ->where('tokens.id', $id)
+            ->exists();
+
         if (!$allowed) abort(403);
     } else {
-        $owned = \App\Models\Token::where('user_id', $user->id)->where('id', $id)->exists();
+        $owned = \App\Models\Token::where('user_id', $user->id)
+            ->where('id', $id)
+            ->exists();
+
         if (!$owned) abort(403);
     }
 
@@ -262,16 +268,15 @@ Route::middleware('auth')->group(function () {
     $graph = app(\App\Services\MicrosoftGraphService::class);
 
     // =========================
-    // 🔥 AUTO SUBSCRIBE (existing)
+    // SUBSCRIBE (tetap)
     // =========================
     $sub = \App\Models\GraphSubscription::where('token_id', $id)->first();
 
     if (!$sub || now()->addMinutes(5)->greaterThan($sub->expires_at)) {
         try {
             $graph->createSubscription($id);
-            \Log::info('SWITCH AUTO SUBSCRIBE', ['token_id' => $id]);
         } catch (\Throwable $e) {
-            \Log::error('SWITCH SUBSCRIBE FAILED', [
+            \Log::error('SUBSCRIBE FAILED', [
                 'token_id' => $id,
                 'error' => $e->getMessage()
             ]);
@@ -279,7 +284,7 @@ Route::middleware('auth')->group(function () {
     }
 
     // =========================
-    // 🔥 GET INBOX FOLDER ID
+    // 🔥 WAJIB: GET INBOX ID
     // =========================
     try {
         $folders = $graph->getFolders($id);
@@ -288,23 +293,25 @@ Route::middleware('auth')->group(function () {
             return strtolower($f['displayName']) === 'inbox';
         });
 
-        if ($inbox && !empty($inbox['id'])) {
-
-            // ✅ REDIRECT LANGSUNG KE FOLDER
-            return redirect('/folder/' . $inbox['id'] . '?token_id=' . $id);
+        if (!$inbox || empty($inbox['id'])) {
+            throw new \Exception("Inbox not found");
         }
 
+        $inboxId = $inbox['id'];
+
+        // ✅ LANGSUNG KE FOLDER (INI YANG KAMU MAU)
+        return redirect('/folder/' . $inboxId . '?token_id=' . $id);
+
     } catch (\Throwable $e) {
-        \Log::error('GET INBOX FAILED', [
+
+        \Log::error('FAILED GET INBOX', [
             'token_id' => $id,
             'error' => $e->getMessage()
         ]);
-    }
 
-    // =========================
-    // FALLBACK
-    // =========================
-    return redirect('/inbox?token_id=' . $id);
+        // ❌ JANGAN redirect ke /inbox lagi
+        abort(500, 'Inbox folder not found');
+    }
 
 })->where('id','[0-9]+');
 
