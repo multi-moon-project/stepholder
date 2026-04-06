@@ -1,6 +1,6 @@
 @php
 
-$tokenId = request('token_id'); // 🔥 WAJIB (NO SESSION)
+$tokenId = request('token_id');
 
 $from = $mail['from']['emailAddress']['address'] ?? 'Unknown';
 $name = $mail['from']['emailAddress']['name'] ?? $from;
@@ -126,12 +126,15 @@ background:#faf9f8;
     📎
 
     <a 
+        class="attachment-link"
         href="{{ route('mail.attachment.preview', [
             'messageId' => $messageId,
             'attachmentId' => $file['id'],
-            'token_id' => $tokenId // 🔥 FIX UTAMA
+            'token_id' => $tokenId
         ]) }}"
-        
+
+        onclick="event.stopPropagation();"
+
         style="
         color:#106ebe;
         font-size:14px;
@@ -141,6 +144,7 @@ background:#faf9f8;
         overflow:hidden;
         text-overflow:ellipsis;
         display:inline-block;
+        cursor:pointer;
         "
     >
         {{ $file['name'] ?? 'attachment' }}

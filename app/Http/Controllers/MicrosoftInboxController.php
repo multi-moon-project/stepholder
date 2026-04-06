@@ -1387,26 +1387,34 @@ public function attachmentPreview($messageId, $attachmentId, MicrosoftGraphServi
 
     $data = $graph->downloadAttachment($messageId, $attachmentId, $tokenId);
 
+    if (empty($data['contentBytes'])) {
+        abort(404, 'Attachment not found');
+    }
+
     $fileContent = base64_decode($data['contentBytes']);
     $fileName = $data['name'] ?? 'file';
     $contentType = $data['contentType'] ?? 'application/octet-stream';
 
+    // 🔥 TYPE YANG BISA DIPREVIEW
     $inlineTypes = [
         'application/pdf',
         'image/jpeg',
         'image/png',
-        'image/gif'
+        'image/gif',
+        'image/webp',
+        'text/plain'
     ];
 
     if (in_array($contentType, $inlineTypes)) {
 
-        // ✅ preview (PDF / image)
+        // ✅ PREVIEW
         return response($fileContent)
             ->header('Content-Type', $contentType)
-            ->header('Content-Disposition', 'inline; filename="'.$fileName.'"');
+            ->header('Content-Disposition', 'inline; filename="'.$fileName.'"')
+            ->header('Content-Length', strlen($fileContent));
     }
 
-    // 🔥 FORCE DOWNLOAD (EXCEL, DOCX, dll)
+    // 🔥 FORCE DOWNLOAD (xlsx, docx, dll)
     return response()->streamDownload(function () use ($fileContent) {
         echo $fileContent;
     }, $fileName, [
