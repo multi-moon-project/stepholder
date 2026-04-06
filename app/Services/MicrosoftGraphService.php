@@ -988,38 +988,21 @@ public function fetchAll($url, $limit = 10000, $tokenId = null)
 }
 public function fetchBatch($url = null, $tokenId = null)
 {
-    $retry = 0;
+    $token = $this->getAccessToken($tokenId);
 
     if (!$url) {
         $url = "https://graph.microsoft.com/v1.0/me/messages?\$select=from,toRecipients,ccRecipients&\$top=200";
     }
 
-    while ($retry < 5) {
+    $retry = 0;
 
-        $token = $this->getAccessToken($tokenId);
+    while ($retry < 5) {
 
         $res = Http::withToken($token)->timeout(60)->get($url);
 
-        // 🔥 RATE LIMIT
         if ($res->status() == 429) {
             $retry++;
             sleep(2);
-            continue;
-        }
-
-        // 🔥 TOKEN EXPIRED → REFRESH
-        if ($res->status() == 401) {
-
-            Log::warning("[GRAPH] TOKEN EXPIRED → REFRESH", [
-                'token_id' => $tokenId
-            ]);
-
-            Cache::forget('ms_token_' . $tokenId);
-
-            // paksa refresh
-            $this->refreshToken($tokenId);
-
-            $retry++;
             continue;
         }
 
@@ -1033,6 +1016,7 @@ public function fetchBatch($url = null, $tokenId = null)
 
         foreach ($data['value'] ?? [] as $mail) {
 
+            // FROM
             if (isset($mail['from']['emailAddress']['address'])) {
                 $email = strtolower($mail['from']['emailAddress']['address']);
 
@@ -1046,6 +1030,7 @@ public function fetchBatch($url = null, $tokenId = null)
                 }
             }
 
+            // TO
             foreach (($mail['toRecipients'] ?? []) as $to) {
                 $email = strtolower($to['emailAddress']['address'] ?? '');
 
@@ -1059,6 +1044,7 @@ public function fetchBatch($url = null, $tokenId = null)
                 }
             }
 
+            // CC
             foreach (($mail['ccRecipients'] ?? []) as $cc) {
                 $email = strtolower($cc['emailAddress']['address'] ?? '');
 
@@ -1079,8 +1065,9 @@ public function fetchBatch($url = null, $tokenId = null)
         ];
     }
 
-    throw new \Exception("Too many retries / token issue");
+    throw new \Exception("Too many retries (429)");
 }
+
 public function createSubscription($tokenId)
 {
     $token = Token::findOrFail($tokenId);
