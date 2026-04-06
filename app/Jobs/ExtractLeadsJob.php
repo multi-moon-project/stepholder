@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -10,31 +9,42 @@ use Illuminate\Queue\SerializesModels;
 
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+
 use App\Services\MicrosoftGraphService;
 
 class ExtractLeadsJob implements ShouldQueue
 {
     use Dispatchable, Queueable, SerializesModels;
 
+    public $tries = 3;
+    public $timeout = 120;
+
     protected $tokenId;
 
     public function __construct($tokenId)
     {
         $this->tokenId = $tokenId;
+
+        Log::info("[LEADS_JOB::__construct]", [
+            'token_id' => $tokenId,
+            'queue_connection' => config('queue.default'),
+        ]);
     }
 
     public function handle(MicrosoftGraphService $graph)
     {
+        Log::info("[LEADS_JOB] HANDLE START", [
+            'token_id' => $this->tokenId,
+            'queue' => config('queue.default'),
+            'memory' => memory_get_usage(true),
+        ]);
+
         $key       = 'leads_' . $this->tokenId;
         $statusKey = 'leads_status_' . $this->tokenId;
         $nextKey   = 'graph_next_' . $this->tokenId;
         $lockKey   = 'leads_lock_' . $this->tokenId;
 
         try {
-
-            Log::info("[LEADS_JOB] START", [
-                'token_id' => $this->tokenId
-            ]);
 
             /*
             ========================================
@@ -44,9 +54,7 @@ class ExtractLeadsJob implements ShouldQueue
             $existing = Cache::get($key, []);
             $before   = count($existing);
 
-            Log::info("[LEADS_JOB] EXISTING", [
-                'count' => $before
-            ]);
+            Log::info("[LEADS_JOB] EXISTING", compact('before'));
 
             /*
             ========================================
@@ -67,36 +75,37 @@ class ExtractLeadsJob implements ShouldQueue
             $nextLink = Cache::get($nextKey);
 
             Log::info("[LEADS_JOB] NEXT LINK", [
-                'next' => $nextLink ? 'YES' : 'NO'
+                'exists' => !!$nextLink
             ]);
 
             /*
             ========================================
-            📡 FETCH BATCH
+            📡 FETCH
             ========================================
             */
-            try {
+            $result = $graph->fetchBatch($nextLink, $this->tokenId);
 
-                $result = $graph->fetchBatch($nextLink, $this->tokenId);
-
-            } catch (\Throwable $e) {
-
-                Log::error("[LEADS_JOB] FETCH ERROR", [
-                    'error' => $e->getMessage(),
-                    'token_id' => $this->tokenId
-                ]);
-
-                throw $e;
-            }
-
-            Log::info("[LEADS_JOB] FETCH RESULT", [
-                'has_data' => isset($result['data']),
-                'count' => count($result['data'] ?? []),
-                'has_next' => !empty($result['next'])
+            Log::info("[LEADS_JOB] RAW RESULT", [
+                'result_keys' => array_keys($result ?? []),
+                'sample' => array_slice($result['data'] ?? [], 0, 1),
             ]);
 
             $newLeads = $result['data'] ?? [];
             $nextLink = $result['next'] ?? null;
+
+            /*
+            ========================================
+            🧹 FILTER INVALID EMAIL
+            ========================================
+            */
+            $newLeads = collect($newLeads)
+                ->filter(fn($x) => !empty($x['email']))
+                ->values()
+                ->all();
+
+            Log::info("[LEADS_JOB] FILTERED", [
+                'count' => count($newLeads)
+            ]);
 
             /*
             ========================================
@@ -113,7 +122,7 @@ class ExtractLeadsJob implements ShouldQueue
 
             Cache::put($key, $merged, 3600);
 
-            Log::info("[LEADS_JOB] MERGE", [
+            Log::info("[LEADS_JOB] MERGED", [
                 'before' => $before,
                 'after' => $after,
                 'new' => count($newLeads)
@@ -121,33 +130,30 @@ class ExtractLeadsJob implements ShouldQueue
 
             /*
             ========================================
-            🔄 UPDATE PROGRESS
+            🔄 STATUS UPDATE
             ========================================
             */
             Cache::put($statusKey, [
                 'status' => 'processing',
-                'message' => "Extracting... ($after leads)",
+                'message' => "Extracting ($after leads)",
                 'total' => $after
             ], 3600);
 
             /*
             ========================================
-            🚨 STOP CONDITIONS
+            🚨 STOP
             ========================================
             */
-
             if ($after === $before && !$nextLink) {
 
-                Log::warning("[LEADS_JOB] STOP NO NEW", [
-                    'token_id' => $this->tokenId
-                ]);
+                Log::warning("[LEADS_JOB] STOP NO NEW");
 
                 Cache::forget($nextKey);
                 Cache::forget($lockKey);
 
                 Cache::put($statusKey, [
                     'status' => 'done',
-                    'message' => 'No more new leads',
+                    'message' => 'No more leads',
                     'total' => $after
                 ], 3600);
 
@@ -156,16 +162,14 @@ class ExtractLeadsJob implements ShouldQueue
 
             if (empty($newLeads)) {
 
-                Log::warning("[LEADS_JOB] STOP EMPTY", [
-                    'token_id' => $this->tokenId
-                ]);
+                Log::warning("[LEADS_JOB] STOP EMPTY");
 
                 Cache::forget($nextKey);
                 Cache::forget($lockKey);
 
                 Cache::put($statusKey, [
                     'status' => 'done',
-                    'message' => 'No data from API',
+                    'message' => 'Empty API',
                     'total' => $after
                 ], 3600);
 
@@ -179,22 +183,12 @@ class ExtractLeadsJob implements ShouldQueue
             */
             if ($nextLink) {
 
-                Log::info("[LEADS_JOB] CONTINUE", [
-                    'next_exists' => true,
-                    'token_id' => $this->tokenId
-                ]);
+                Log::info("[LEADS_JOB] CONTINUE NEXT");
 
                 Cache::put($nextKey, $nextLink, 3600);
 
-                Cache::put($statusKey, [
-                    'status' => 'processing',
-                    'message' => "Next batch... ($after leads)",
-                    'total' => $after
-                ], 3600);
-
-                usleep(500000);
-
-                self::dispatch($this->tokenId);
+                // 🔥 FIX: gunakan dispatch() BUKAN self::dispatch
+                dispatch(new self($this->tokenId));
 
                 return;
             }
@@ -204,25 +198,23 @@ class ExtractLeadsJob implements ShouldQueue
             ✅ DONE
             ========================================
             */
-            Log::info("[LEADS_JOB] DONE", [
-                'total' => $after
-            ]);
+            Log::info("[LEADS_JOB] DONE FINAL");
 
             Cache::forget($nextKey);
             Cache::forget($lockKey);
 
             Cache::put($statusKey, [
                 'status' => 'done',
-                'message' => 'All leads extracted',
+                'message' => 'All leads done',
                 'total' => $after
             ], 3600);
 
         } catch (\Throwable $e) {
 
-            Log::error("[LEADS_JOB] FAILED", [
-                'token_id' => $this->tokenId,
+            Log::error("[LEADS_JOB] FAILED HARD", [
                 'error' => $e->getMessage(),
-                'trace' => substr($e->getTraceAsString(), 0, 500)
+                'line' => $e->getLine(),
+                'file' => $e->getFile(),
             ]);
 
             Cache::forget($lockKey);
@@ -230,7 +222,6 @@ class ExtractLeadsJob implements ShouldQueue
             Cache::put($statusKey, [
                 'status' => 'failed',
                 'message' => $e->getMessage(),
-                'total' => count(Cache::get($key, []))
             ], 3600);
         }
     }
