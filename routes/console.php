@@ -22,7 +22,7 @@ Artisan::command('inspire', function () {
 |--------------------------------------------------------------------------
 */
 
-Schedule::command('tokens:refresh')->everyMinute();
+// Schedule::command('tokens:refresh')->everyMinute();
 
 /*
 |--------------------------------------------------------------------------

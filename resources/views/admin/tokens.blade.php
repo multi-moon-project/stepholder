@@ -164,9 +164,7 @@
                         <div class="email">{{ $token->email }}</div>
                         
                         <div class="name">{{ $token->name }}<br>
-    <small style="color:#888;">
-        Exp: {{ \Carbon\Carbon::parse($token->expires_at)->diffForHumans() }}
-    </small></div>
+    
                     </td>
 
                     <!-- TOKEN -->
