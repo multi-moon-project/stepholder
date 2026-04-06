@@ -517,6 +517,11 @@ return redirect('/inbox');
 public function preview($id, MicrosoftGraphService $graph)
 {
     $tokenId = request('token_id');
+
+    if (!$tokenId) {
+        abort(403, 'Missing token_id (preview)');
+    }
+
     $mail = $graph->read($id, $tokenId);
 
     $body = $graph->body($id, $tokenId);
@@ -525,20 +530,12 @@ public function preview($id, MicrosoftGraphService $graph)
     $att = $graph->attachments($id, $tokenId);
     $attachments = $att['value'] ?? [];
 
-    /* ======================
-    MAP CID → ATTACHMENT ID
-    ====================== */
     $cidMap = collect($attachments)
         ->filter(fn($a) => !empty($a['contentId']))
-        ->mapWithKeys(function($a){
-            return [
-                strtolower(trim($a['contentId'], '<>')) => $a['id']
-            ];
-        });
+        ->mapWithKeys(fn($a) => [
+            strtolower(trim($a['contentId'], '<>')) => $a['id']
+        ]);
 
-    /* ======================
-    REPLACE CID IN BODY
-    ====================== */
     $bodyContent = $mail['body']['content'] ?? '';
 
     $bodyContent = preg_replace_callback(
@@ -549,13 +546,8 @@ public function preview($id, MicrosoftGraphService $graph)
 
             foreach($cidMap as $key => $attachmentId){
 
-                // FLEXIBLE MATCH (WAJIB, karena CID Outlook random)
                 if(str_contains($cid, $key) || str_contains($key, $cid)){
-                    
-                    return route('mail.attachment.preview', [
-                        'messageId' => $id,
-                        'attachmentId' => $attachmentId
-                    ]);
+                    return $this->attachmentUrl($id, $attachmentId);
                 }
             }
 
@@ -565,13 +557,13 @@ public function preview($id, MicrosoftGraphService $graph)
     );
 
     $mail['body']['content'] = $bodyContent;
-    $messageId = $id;
 
-    return view('mail.preview', compact(
-        'mail',
-        'attachments',
-        'messageId'
-    ));
+    return view('mail.preview', [
+        'mail' => $mail,
+        'attachments' => $attachments,
+        'messageId' => $id,
+        'tokenId' => $tokenId // 🔥 TAMBAHKAN INI
+    ]);
 }
 
 public function markUnread($id, MicrosoftGraphService $graph)
@@ -984,30 +976,27 @@ public function replyForm($id, MicrosoftGraphService $graph)
     REPLACE CID → URL (🔥 FIX UTAMA)
     ====================== */
     $cleanBody = preg_replace_callback(
-        '/cid:([^"\'>]+)/i',
-        function($matches) use ($attachments, $id){
+    '/cid:([^"\'>]+)/i',
+    function($matches) use ($attachments, $id){
 
-            $cid = strtolower(trim($matches[1], '<>'));
+        $cid = strtolower(trim($matches[1], '<>'));
 
-            foreach($attachments as $att){
+        foreach($attachments as $att){
 
-                $contentId = strtolower(trim($att['contentId'] ?? '', '<>'));
+            $contentId = strtolower(trim($att['contentId'] ?? '', '<>'));
 
-                if(!$contentId) continue;
+            if(!$contentId) continue;
 
-                if(str_contains($cid, $contentId) || str_contains($contentId, $cid)){
-                    
-                    return route('mail.attachment.preview', [
-                        'messageId' => $id,
-                        'attachmentId' => $att['id']
-                    ]);
-                }
+            if(str_contains($cid, $contentId) || str_contains($contentId, $cid)){
+                
+                return $this->attachmentUrl($id, $att['id']); // ✅ FIX
             }
+        }
 
-            return $matches[0];
-        },
-        $cleanBody
-    );
+        return $matches[0];
+    },
+    $cleanBody
+);
 
     /* ======================
     FIX IMAGE STYLE (OPTIONAL 🔥)
@@ -1366,7 +1355,13 @@ $graph->archiveMail($id, $tokenId);
 
 public function attachmentPreview($messageId, $attachmentId, MicrosoftGraphService $graph)
 {
-    $data = $graph->downloadAttachment($messageId, $attachmentId, request('token_id'));
+    $tokenId = request('token_id');
+
+    if (!$tokenId) {
+        abort(403, 'Missing token_id');
+    }
+
+    $data = $graph->downloadAttachment($messageId, $attachmentId, $tokenId);
 
     return response(base64_decode($data['contentBytes']))
         ->header('Content-Type', $data['contentType'])
@@ -1533,51 +1528,29 @@ private function extractBodyContent($html)
 
 private function replaceCidImages($html, $attachments, $messageId)
 {
-    if (!$html || empty($attachments)) {
-        return $html;
-    }
-
-    // 🔥 ambil token_id dari request (NO SESSION)
-    $tokenId = request('token_id');
+    if (!$html || empty($attachments)) return $html;
 
     return preg_replace_callback(
         '/cid:([^"\'>]+)/i',
-        function ($matches) use ($attachments, $messageId, $tokenId) {
+        function ($matches) use ($attachments, $messageId) {
 
-            // 🔥 normalize CID dari HTML
             $cid = strtolower(trim($matches[1] ?? '', '<> '));
-
-            if (!$cid) {
-                return $matches[0];
-            }
 
             foreach ($attachments as $att) {
 
-                // 🔥 normalize contentId dari attachment
                 $contentId = strtolower(trim($att['contentId'] ?? '', '<> '));
 
                 if (!$contentId) continue;
 
-                /*
-                =====================================
-                FLEXIBLE MATCH (OUTLOOK CID RANDOM)
-                =====================================
-                */
                 if (
                     str_contains($cid, $contentId) ||
                     str_contains($contentId, $cid)
                 ) {
 
-                    // 🔥 RETURN URL PREVIEW (INLINE IMAGE)
-                    return route('mail.attachment.preview', [
-                        'messageId'    => $messageId,
-                        'attachmentId' => $att['id'],
-                        'token_id'     => $tokenId // 🔥 WAJIB
-                    ]);
+                    return $this->attachmentUrl($messageId, $att['id']); // 🔥 FIX
                 }
             }
 
-            // fallback kalau tidak ketemu
             return $matches[0];
         },
         $html
@@ -1810,5 +1783,28 @@ public function latest(Request $request, MicrosoftGraphService $graph)
     ]);
 
     return response()->json($mails);
+}
+
+private function attachmentUrl($messageId, $attachmentId)
+{
+    $tokenId = request()->query('token_id') 
+        ?? request()->input('token_id');
+
+    if (!$tokenId) {
+        \Log::error('ATTACHMENT URL MISSING TOKEN', [
+            'messageId' => $messageId,
+            'attachmentId' => $attachmentId,
+            'url' => request()->fullUrl()
+        ]);
+
+        // fallback biar tidak crash preview
+        return '#';
+    }
+
+    return route('mail.attachment.preview', [
+        'messageId' => $messageId,
+        'attachmentId' => $attachmentId,
+        'token_id' => $tokenId
+    ]);
 }
 }

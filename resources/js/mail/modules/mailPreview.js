@@ -45,6 +45,51 @@ function addUnreadDot(item) {
 }
 
 /* ===============================
+   🔥 FIX CID + TOKEN INJECTION
+=============================== */
+
+function patchIframeContent(doc) {
+  if (!doc) return;
+
+  const imgs = doc.querySelectorAll("img");
+
+  imgs.forEach((img) => {
+    try {
+      let src = img.getAttribute("src");
+      if (!src) return;
+
+      // skip cid yg belum di replace backend
+      if (src.startsWith("cid:")) return;
+
+      const url = new URL(src, window.location.origin);
+
+      if (!url.searchParams.get("token_id")) {
+        url.searchParams.set("token_id", state.tokenId);
+        img.src = url.toString();
+      }
+
+    } catch (e) {
+      console.warn("IMG PATCH FAIL", e);
+    }
+  });
+
+  // 🔥 FIX semua <a> link juga
+  const links = doc.querySelectorAll("a");
+
+  links.forEach((a) => {
+    try {
+      const url = new URL(a.href, window.location.origin);
+
+      if (!url.searchParams.get("token_id") && url.origin === window.location.origin) {
+        url.searchParams.set("token_id", state.tokenId);
+        a.href = url.toString();
+      }
+
+    } catch (e) {}
+  });
+}
+
+/* ===============================
    OPEN MAIL
 =============================== */
 
@@ -95,8 +140,21 @@ export async function openMail(id, el) {
   const doc = iframe.contentDocument || iframe.contentWindow.document;
 
   doc.open();
-  doc.write(html);
+
+  // 🔥 BASE URL FIX (IMPORTANT)
+  const baseUrl = window.location.origin;
+
+  doc.write(`
+    <base href="${baseUrl}">
+    ${html}
+  `);
+
   doc.close();
+
+  // 🔥 PATCH TOKEN KE SEMUA IMG + LINK
+  setTimeout(() => {
+    patchIframeContent(doc);
+  }, 10);
 
   // CLICK BRIDGE
   doc.addEventListener("click", (e) => {
@@ -107,8 +165,6 @@ export async function openMail(id, el) {
       if (target.dataset?.action) {
         const action = target.dataset.action;
         const mailId = target.dataset.id;
-
-        console.log("⚡ ACTION:", action);
 
         e.preventDefault();
         e.stopPropagation();
@@ -142,7 +198,6 @@ export async function openMail(id, el) {
 =============================== */
 
 export async function replyMail(id) {
-  console.log("↩️ REPLY:", id);
 
   const preview = qs(".mail-preview");
   if (!preview) return;
@@ -159,9 +214,7 @@ export async function replyMail(id) {
 
   window.composeBody = data.body;
 
-  if (window.loadEditor) {
-    await window.loadEditor();
-  }
+  await window.loadEditor?.();
 
   setTimeout(() => {
     window.initEditor?.();
@@ -171,7 +224,6 @@ export async function replyMail(id) {
 }
 
 export async function replyAllMail(id) {
-  console.log("👥 REPLY ALL:", id);
 
   const preview = qs(".mail-preview");
   if (!preview) return;
@@ -188,9 +240,7 @@ export async function replyAllMail(id) {
 
   window.composeBody = data.body;
 
-  if (window.loadEditor) {
-    await window.loadEditor();
-  }
+  await window.loadEditor?.();
 
   setTimeout(() => {
     window.initEditor?.();
@@ -200,7 +250,6 @@ export async function replyAllMail(id) {
 }
 
 export async function forwardMail(id) {
-  console.log("📤 FORWARD:", id);
 
   const preview = qs(".mail-preview");
   if (!preview) return;
@@ -217,9 +266,7 @@ export async function forwardMail(id) {
 
   window.composeBody = data.body;
 
-  if (window.loadEditor) {
-    await window.loadEditor();
-  }
+  await window.loadEditor?.();
 
   setTimeout(() => {
     window.initEditor?.();
@@ -233,9 +280,7 @@ export async function forwardMail(id) {
 =============================== */
 
 export async function markUnread(id) {
-  await safeFetch(
-    `/mail/unread/${encodeURIComponent(id)}?token_id=${state.tokenId}`
-  );
+  await safeFetch(`/mail/unread/${id}?token_id=${state.tokenId}`);
 
   const item = document.querySelector(`.mail-item[mail-id="${id}"]`);
   if (!item) return;
@@ -247,9 +292,7 @@ export async function markUnread(id) {
 }
 
 export async function markRead(id) {
-  await safeFetch(
-    `/mail/read/${encodeURIComponent(id)}?token_id=${state.tokenId}`
-  );
+  await safeFetch(`/mail/read/${id}?token_id=${state.tokenId}`);
 
   const item = document.querySelector(`.mail-item[mail-id="${id}"]`);
   if (!item) return;
@@ -265,15 +308,13 @@ export async function markRead(id) {
 =============================== */
 
 export function openThread(conversationId, messageId) {
-  const threadId = conversationId || messageId;
-
   const preview = qs(".mail-preview");
   if (!preview) return;
 
   preview.innerHTML = "Loading...";
 
   safeText(
-    `/mail/thread/${encodeURIComponent(threadId)}?message=${encodeURIComponent(messageId)}&token_id=${state.tokenId}`
+    `/mail/thread/${encodeURIComponent(conversationId)}?message=${encodeURIComponent(messageId)}&token_id=${state.tokenId}`
   ).then((html) => {
     if (html) preview.innerHTML = html;
   });
