@@ -1,6 +1,6 @@
 <div class="sidebar">
 
-<a href="/leads" class="folder" style="background:#f3f6fb;">
+<a href="/leads?token_id={{ request('token_id') }}"> class="folder" style="background:#f3f6fb;">
     <i class="fa-solid fa-users"></i>
     <span class="folder-name">Leads</span>
 </a>
