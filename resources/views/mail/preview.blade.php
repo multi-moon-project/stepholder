@@ -126,12 +126,12 @@ background:#faf9f8;
     📎
 
     <a 
-        href="{{ route('mail.attachment.preview', [
-            'messageId' => $messageId,
-            'attachmentId' => $file['id'],
-            'token_id' => $tokenId // 🔥 FIX UTAMA
-        ]) }}"
-        target="_blank"
+    href="{{ route('mail.download.attachment', [
+        'messageId' => $messageId,
+        'attachmentId' => $file['id'],
+        'token_id' => $tokenId
+    ]) }}"
+    download
         style="
         color:#106ebe;
         font-size:14px;

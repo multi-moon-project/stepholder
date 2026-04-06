@@ -148,14 +148,44 @@ public function downloadAttachment($messageId, $attachmentId, MicrosoftGraphServ
     }
 
     $fileContent = base64_decode($data['contentBytes']);
+
     $fileName = $data['name'] ?? 'file';
     $contentType = $data['contentType'] ?? 'application/octet-stream';
 
-    return response()->streamDownload(function () use ($fileContent) {
-        echo $fileContent;
-    }, $fileName, [
+    /*
+    ======================================
+    🔥 FIX EXTENSION (WAJIB)
+    ======================================
+    */
+
+    if (!str_contains($fileName, '.')) {
+
+        $map = [
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
+            'application/vnd.ms-excel' => 'xls',
+            'application/pdf' => 'pdf',
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'text/plain' => 'txt',
+        ];
+
+        $ext = $map[$contentType] ?? 'bin';
+
+        $fileName .= '.' . $ext;
+    }
+
+    /*
+    ======================================
+    🔥 HEADER FIX (INI KUNCI UTAMA)
+    ======================================
+    */
+
+    return response($fileContent, 200, [
         'Content-Type' => $contentType,
+        'Content-Disposition' => 'attachment; filename="'.$fileName.'"',
         'Content-Length' => strlen($fileContent),
+        'Cache-Control' => 'no-store, no-cache, must-revalidate',
+        'Pragma' => 'no-cache',
     ]);
 }
 
