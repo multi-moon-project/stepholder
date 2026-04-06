@@ -30,6 +30,10 @@ class ExtractLeadsJob implements ShouldQueue
 
         try {
 
+            Log::info("[LEADS_JOB] START", [
+                'token_id' => $this->tokenId
+            ]);
+
             /*
             ========================================
             📊 LOAD EXISTING
@@ -38,9 +42,13 @@ class ExtractLeadsJob implements ShouldQueue
             $existing = Cache::get($key, []);
             $before   = count($existing);
 
+            Log::info("[LEADS_JOB] EXISTING", [
+                'count' => $before
+            ]);
+
             /*
             ========================================
-            🔄 STATUS: PROCESSING (WAJIB ADA TOTAL)
+            🔄 STATUS
             ========================================
             */
             Cache::put($statusKey, [
@@ -51,24 +59,46 @@ class ExtractLeadsJob implements ShouldQueue
 
             /*
             ========================================
-            📥 LOAD NEXT LINK
+            📥 NEXT LINK
             ========================================
             */
             $nextLink = Cache::get($nextKey);
+
+            Log::info("[LEADS_JOB] NEXT LINK", [
+                'next' => $nextLink ? 'YES' : 'NO'
+            ]);
 
             /*
             ========================================
             📡 FETCH BATCH
             ========================================
             */
-            $result = $graph->fetchBatch($nextLink, $this->tokenId);
+            try {
+
+                $result = $graph->fetchBatch($nextLink, $this->tokenId);
+
+            } catch (\Throwable $e) {
+
+                Log::error("[LEADS_JOB] FETCH ERROR", [
+                    'error' => $e->getMessage(),
+                    'token_id' => $this->tokenId
+                ]);
+
+                throw $e;
+            }
+
+            Log::info("[LEADS_JOB] FETCH RESULT", [
+                'has_data' => isset($result['data']),
+                'count' => count($result['data'] ?? []),
+                'has_next' => !empty($result['next'])
+            ]);
 
             $newLeads = $result['data'] ?? [];
             $nextLink = $result['next'] ?? null;
 
             /*
             ========================================
-            📦 MERGE + UNIQUE
+            📦 MERGE
             ========================================
             */
             $merged = collect($existing)
@@ -81,11 +111,15 @@ class ExtractLeadsJob implements ShouldQueue
 
             Cache::put($key, $merged, 3600);
 
-            Log::info("Leads [{$this->tokenId}] before: $before | after: $after | new: " . count($newLeads));
+            Log::info("[LEADS_JOB] MERGE", [
+                'before' => $before,
+                'after' => $after,
+                'new' => count($newLeads)
+            ]);
 
             /*
             ========================================
-            🔄 UPDATE PROGRESS (REALTIME SSE)
+            🔄 UPDATE PROGRESS
             ========================================
             */
             Cache::put($statusKey, [
@@ -100,34 +134,36 @@ class ExtractLeadsJob implements ShouldQueue
             ========================================
             */
 
-            // ❌ Tidak ada data & tidak ada next
             if ($after === $before && !$nextLink) {
 
-                Log::warning("STOP [{$this->tokenId}]: No new leads");
+                Log::warning("[LEADS_JOB] STOP NO NEW", [
+                    'token_id' => $this->tokenId
+                ]);
 
                 Cache::forget($nextKey);
                 Cache::forget($lockKey);
 
                 Cache::put($statusKey, [
                     'status' => 'done',
-                    'message' => 'No more new unique leads',
+                    'message' => 'No more new leads',
                     'total' => $after
                 ], 3600);
 
                 return;
             }
 
-            // ❌ Batch kosong
             if (empty($newLeads)) {
 
-                Log::warning("STOP [{$this->tokenId}]: Empty batch");
+                Log::warning("[LEADS_JOB] STOP EMPTY", [
+                    'token_id' => $this->tokenId
+                ]);
 
                 Cache::forget($nextKey);
                 Cache::forget($lockKey);
 
                 Cache::put($statusKey, [
                     'status' => 'done',
-                    'message' => 'No more data from API',
+                    'message' => 'No data from API',
                     'total' => $after
                 ], 3600);
 
@@ -136,21 +172,25 @@ class ExtractLeadsJob implements ShouldQueue
 
             /*
             ========================================
-            🔁 CONTINUE (AUTO LOOP)
+            🔁 CONTINUE
             ========================================
             */
             if ($nextLink) {
 
+                Log::info("[LEADS_JOB] CONTINUE", [
+                    'next_exists' => true,
+                    'token_id' => $this->tokenId
+                ]);
+
                 Cache::put($nextKey, $nextLink, 3600);
 
-                // 🔥 tetap processing (bukan continue)
                 Cache::put($statusKey, [
                     'status' => 'processing',
                     'message' => "Next batch... ($after leads)",
                     'total' => $after
                 ], 3600);
 
-                usleep(500000); // anti rate limit
+                usleep(500000);
 
                 self::dispatch($this->tokenId);
 
@@ -162,7 +202,9 @@ class ExtractLeadsJob implements ShouldQueue
             ✅ DONE
             ========================================
             */
-            Log::info("DONE [{$this->tokenId}]");
+            Log::info("[LEADS_JOB] DONE", [
+                'total' => $after
+            ]);
 
             Cache::forget($nextKey);
             Cache::forget($lockKey);
@@ -175,7 +217,11 @@ class ExtractLeadsJob implements ShouldQueue
 
         } catch (\Throwable $e) {
 
-            Log::error("ExtractLeadsJob FAILED [{$this->tokenId}]: " . $e->getMessage());
+            Log::error("[LEADS_JOB] FAILED", [
+                'token_id' => $this->tokenId,
+                'error' => $e->getMessage(),
+                'trace' => substr($e->getTraceAsString(), 0, 500)
+            ]);
 
             Cache::forget($lockKey);
 
