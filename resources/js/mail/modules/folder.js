@@ -6,6 +6,15 @@ import { refreshFolderCrudBindings } from "./folderCrud";
 
 /*
 ========================================
+HELPER
+========================================
+*/
+function getFolderCacheKey(folderId) {
+  return `${state.tokenId}_${folderId}`;
+}
+
+/*
+========================================
 TRASH BUTTON TOGGLE
 ========================================
 */
@@ -31,28 +40,44 @@ export function toggleTrashButtons() {
 LOAD FOLDER (MULTI ACCOUNT SAFE)
 ========================================
 */
-export async function loadFolder(id, name, el) {
+export async function loadFolder(id, name = "", el = null, options = {}) {
+  const { force = false } = options;
+
+  if (!id) return;
+
   state.loadingMore = false;
-
-  // 🔥 WAJIB: simpan ID untuk pagination
+  state.searchMode = false;
+  state.searchQuery = "";
   state.currentFolderId = id;
+  state.currentFolder = name || state.currentFolder || "";
 
-  // 🔥 nama folder (UI only)
-  state.currentFolder = name;
+  const cacheKey = getFolderCacheKey(id);
 
-  // =========================
-  // UI: highlight folder
-  // =========================
+  if (!window.__dirtyFolders) {
+    window.__dirtyFolders = new Set();
+  }
+
+  /*
+  =========================
+  UI: highlight folder
+  =========================
+  */
   qsa(".folder").forEach((f) => f.classList.remove("active"));
-  if (el) el.classList.add("active");
+  if (el) {
+    el.classList.add("active");
+  } else {
+    const activeEl = document.querySelector(`.folder[data-id="${id}"]`);
+    if (activeEl) activeEl.classList.add("active");
+  }
 
   toggleTrashButtons();
 
-  // =========================
-  // RESET PREVIEW
-  // =========================
+  /*
+  =========================
+  RESET PREVIEW
+  =========================
+  */
   const preview = qs(".mail-preview");
-
   if (preview) {
     preview.innerHTML = `
       <div class="empty-preview">
@@ -63,27 +88,44 @@ export async function loadFolder(id, name, el) {
     `;
   }
 
-  // =========================
-  // CACHE HIT
-  // =========================
-  if (!window.__dirtyFolders?.has(id) && state.folderCache?.has(id)) {
-    const cache = state.folderCache.get(id);
+  /*
+  =========================
+  CACHE HIT
+  =========================
+  */
+  const isDirty = window.__dirtyFolders.has(cacheKey);
+
+  if (!force && !isDirty && state.folderCache?.has(cacheKey)) {
+    const cache = state.folderCache.get(cacheKey);
 
     state.mailListEl.innerHTML = cache.html;
-    state.nextPage = cache.nextPage;
+    state.nextPage = cache.nextPage ?? null;
 
     refreshFolderCrudBindings();
     return;
   }
 
-  // =========================
-  // LOADING STATE
-  // =========================
-  state.mailListEl.innerHTML = skeletonList();
+  /*
+  =========================
+  FORCE / DIRTY => DROP CACHE
+  =========================
+  */
+  if (state.folderCache?.has(cacheKey)) {
+    state.folderCache.delete(cacheKey);
+  }
+
+  /*
+  =========================
+  LOADING STATE
+  =========================
+  */
+  if (state.mailListEl) {
+    state.mailListEl.innerHTML = skeletonList();
+  }
 
   /*
   ========================================
-  FETCH (🔥 MULTI ACCOUNT + SAFE URL)
+  FETCH (MULTI ACCOUNT + SAFE URL)
   ========================================
   */
   const url =
@@ -93,41 +135,36 @@ export async function loadFolder(id, name, el) {
     encodeURIComponent(state.tokenId);
 
   const html = await safeText(url);
-
   if (!html) return;
 
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
 
   const newList = doc.querySelector(".mail-list");
-
-  // =========================
-  // NEXT PAGE (IMPORTANT)
-  // =========================
   const next = doc.querySelector("#nextPageLink");
   const nextPage = next ? next.dataset.next : null;
 
-  if (newList) {
+  if (newList && state.mailListEl) {
     state.mailListEl.innerHTML = newList.innerHTML;
 
-    state.folderCache.set(id, {
+    state.folderCache.set(cacheKey, {
       html: newList.innerHTML,
-      nextPage: nextPage,
+      nextPage
     });
 
-    if (window.__dirtyFolders) {
-      window.__dirtyFolders.delete(id);
-    }
+    window.__dirtyFolders.delete(cacheKey);
   }
 
-  // =========================
-  // SAVE PAGINATION STATE
-  // =========================
+  /*
+  =========================
+  SAVE PAGINATION STATE
+  =========================
+  */
   state.nextPage = nextPage;
 
   /*
   ========================================
-  UPDATE URL (🔥 MULTI ACCOUNT SAFE)
+  UPDATE URL (MULTI ACCOUNT SAFE)
   ========================================
   */
   history.pushState(
