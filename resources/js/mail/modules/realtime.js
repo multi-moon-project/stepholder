@@ -308,7 +308,10 @@ export async function checkNewMail() {
 
       updateFolderUnread(mail.parentFolderId, 1);
 
-      if (state.currentFolderId === "inbox") {
+      console.log("currentFolderId:", state.currentFolderId, "inboxFolderId:", state.inboxFolderId);
+      
+
+      if (state.currentFolderId === state.inboxFolderId) {
         try {
           const html = await safeText(
             `/mail/item/${mail.id}?token_id=${state.tokenId}`

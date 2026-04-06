@@ -96,26 +96,55 @@ window.toggleBcc = toggleBcc;
 FOLDER ICONS
 ====================== */
 function initFolderIcons() {
-  qsa(".folder").forEach((folder) => {
 
-    const name = (folder.dataset.name || "").toLowerCase();
-    const icon = folder.querySelector(".folder-icon");
+  const folders = qsa(".folder");
+
+  console.log("📂 FOLDERS FOUND:", folders.length);
+
+  state.inboxFolderId = null; // reset biar aman
+
+  folders.forEach((folder) => {
+
+    // 🔥 SKIP kalau tidak punya ID (contoh: Leads)
+    if (!folder.dataset.id) return;
+
+    const name = (
+      folder.dataset.name ||
+      folder.innerText ||
+      ""
+    ).toLowerCase();
+
+    const icon = folder.querySelector(".fa-solid");
     if (!icon) return;
 
-    if (name.includes("inbox")) icon.className = "folder-icon fa-solid fa-inbox";
-    else if (name.includes("draft")) icon.className = "folder-icon fa-solid fa-pen-to-square";
-    else if (name.includes("sent")) icon.className = "folder-icon fa-solid fa-paper-plane";
-    else if (name.includes("deleted")) icon.className = "folder-icon fa-solid fa-trash";
-    else if (name.includes("archive")) icon.className = "folder-icon fa-solid fa-box-archive";
-    else if (name.includes("junk") || name.includes("spam")) icon.className = "folder-icon fa-solid fa-shield-halved";
-    else icon.className = "folder-icon fa-regular fa-folder";
-
-    state.folderMap.set(folder.dataset.id, folder);
-
     if (name.includes("inbox")) {
+      icon.className = "fa-solid fa-inbox";
       state.inboxFolderId = folder.dataset.id;
     }
+    else if (name.includes("draft")) {
+      icon.className = "fa-solid fa-pen-to-square";
+    }
+    else if (name.includes("sent")) {
+      icon.className = "fa-solid fa-paper-plane";
+    }
+    else if (name.includes("deleted")) {
+      icon.className = "fa-solid fa-trash";
+    }
+    else if (name.includes("archive")) {
+      icon.className = "fa-solid fa-box-archive";
+    }
+    else if (name.includes("junk") || name.includes("spam")) {
+      icon.className = "fa-solid fa-shield-halved";
+    }
+
+    state.folderMap.set(folder.dataset.id, folder);
   });
+
+  console.log("✅ Inbox Folder ID:", state.inboxFolderId);
+
+  if (!state.inboxFolderId) {
+    console.error("❌ Inbox NOT detected! Cek data-name / DOM");
+  }
 }
 
 /* ======================
@@ -282,7 +311,10 @@ export async function initMailAppCore() {
   state.nextPage = window.__MAIL_NEXT_PAGE__ ?? state.nextPage;
   state.mailListEl = qs(".mail-list");
 
+  // 🔥 Delay supaya DOM benar-benar siap
+setTimeout(() => {
   initFolderIcons();
+}, 100);
   bindAccountMenu();
 
   await loadRulesToState();
