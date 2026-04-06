@@ -5,7 +5,7 @@ import { openOneDrive, closeOneDrive } from "./modules/onedrive.js";
 import { closeSettings, openSettings, loadRules, loadRulesToState, createRule, newRule, deleteRule, selectRule } from './modules/rules.js';
 import { state } from "./core/state.js";
 import { qs, qsa } from "./core/dom.js";
-import { initRealtime, checkNewMail } from './modules/realtime.js';
+import { initRealtime } from './modules/realtime.js';
 
 import { mountMailListScroll, loadMoreEmails, renderMailList } from "./modules/mailList.js";
 import { addSearch, instantFilter, liveSearch, mountSearch } from "./modules/search.js";
@@ -219,7 +219,7 @@ window.downloadNext = downloadNext;
 
   /* ===== UTIL ===== */
   window.undoManager = undoManager;
-  window.checkNewMail = checkNewMail;
+  // window.checkNewMail = checkNewMail;
   window.addRecipientDirect = addRecipientDirect;
 
   /* ======================
