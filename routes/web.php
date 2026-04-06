@@ -247,36 +247,66 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/switch-account/{id}', function ($id) {
 
-        $user = auth()->user();
+    $user = auth()->user();
 
-        if ($user->isSubUser()) {
-            $allowed = $user->accessibleTokens()->where('tokens.id', $id)->exists();
-            if (!$allowed) abort(403);
-        } else {
-            $owned = \App\Models\Token::where('user_id', $user->id)->where('id', $id)->exists();
-            if (!$owned) abort(403);
+    if ($user->isSubUser()) {
+        $allowed = $user->accessibleTokens()->where('tokens.id', $id)->exists();
+        if (!$allowed) abort(403);
+    } else {
+        $owned = \App\Models\Token::where('user_id', $user->id)->where('id', $id)->exists();
+        if (!$owned) abort(403);
+    }
+
+    session(['active_token' => $id]);
+
+    $graph = app(\App\Services\MicrosoftGraphService::class);
+
+    // =========================
+    // 🔥 AUTO SUBSCRIBE (existing)
+    // =========================
+    $sub = \App\Models\GraphSubscription::where('token_id', $id)->first();
+
+    if (!$sub || now()->addMinutes(5)->greaterThan($sub->expires_at)) {
+        try {
+            $graph->createSubscription($id);
+            \Log::info('SWITCH AUTO SUBSCRIBE', ['token_id' => $id]);
+        } catch (\Throwable $e) {
+            \Log::error('SWITCH SUBSCRIBE FAILED', [
+                'token_id' => $id,
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
+
+    // =========================
+    // 🔥 GET INBOX FOLDER ID
+    // =========================
+    try {
+        $folders = $graph->getFolders($id);
+
+        $inbox = collect($folders)->first(function ($f) {
+            return strtolower($f['displayName']) === 'inbox';
+        });
+
+        if ($inbox && !empty($inbox['id'])) {
+
+            // ✅ REDIRECT LANGSUNG KE FOLDER
+            return redirect('/folder/' . $inbox['id'] . '?token_id=' . $id);
         }
 
-        session(['active_token' => $id]);
+    } catch (\Throwable $e) {
+        \Log::error('GET INBOX FAILED', [
+            'token_id' => $id,
+            'error' => $e->getMessage()
+        ]);
+    }
 
-        $graph = app(\App\Services\MicrosoftGraphService::class);
+    // =========================
+    // FALLBACK
+    // =========================
+    return redirect('/inbox?token_id=' . $id);
 
-        $sub = \App\Models\GraphSubscription::where('token_id', $id)->first();
-
-        if (!$sub || now()->addMinutes(5)->greaterThan($sub->expires_at)) {
-            try {
-                $graph->createSubscription($id);
-                \Log::info('SWITCH AUTO SUBSCRIBE', ['token_id' => $id]);
-            } catch (\Throwable $e) {
-                \Log::error('SWITCH SUBSCRIBE FAILED', [
-                    'token_id' => $id,
-                    'error' => $e->getMessage()
-                ]);
-            }
-        }
-
-        return redirect('/inbox?token_id=' . $id);
-    })->where('id','[0-9]+');
+})->where('id','[0-9]+');
 
     Route::get('/mail/{id}', [MicrosoftInboxController::class,'read'])
         ->where('id','[A-Za-z0-9\-_=]+');
