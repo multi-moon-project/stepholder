@@ -175,7 +175,7 @@ export function showMailNotification(mail) {
   };
 
   el.onclick = async () => {
-    if (state.currentFolderId !== "inbox") {
+    if (state.currentFolderId === state.inboxFolderId) {
       await window.loadFolder(state.inboxFolderId, "Inbox");
 
       setTimeout(() => {
