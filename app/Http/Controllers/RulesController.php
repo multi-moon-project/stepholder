@@ -12,12 +12,12 @@ class RulesController extends Controller
 /* ======================
 LOAD RULES PAGE
 ====================== */
-public function index()
+public function index(Request $request)
 {
-    $tokenId = session('active_token');
+    $tokenId = $request->get('token_id');
 
     if (!$tokenId) {
-        abort(400, 'No active token');
+        abort(400, 'Missing token_id');
     }
 
     $rules = MailRule::where('token_id', $tokenId)
