@@ -342,5 +342,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         document.getElementById('txtBtn').disabled = false;
     }
 });
+
+window.handleExtract = handleExtract;
+window.startDownload = startDownload;
+window.downloadNext = downloadNext;
 </script>
 @endpush
