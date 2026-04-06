@@ -7,92 +7,163 @@ use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use App\Services\MicrosoftGraphService;
 
 class ExtractLeadsJob implements ShouldQueue
 {
     use Dispatchable, Queueable, SerializesModels;
 
-    protected $userId;
+    protected $tokenId;
 
-    public function __construct($userId)
+    public function __construct($tokenId)
     {
-        $this->userId = $userId;
+        $this->tokenId = $tokenId;
     }
 
     public function handle(MicrosoftGraphService $graph)
     {
-        $key = 'leads_' . $this->userId;
-        $statusKey = 'leads_status_' . $this->userId;
-        $nextKey = 'graph_next_' . $this->userId;
+        $key       = 'leads_' . $this->tokenId;
+        $statusKey = 'leads_status_' . $this->tokenId;
+        $nextKey   = 'graph_next_' . $this->tokenId;
+        $lockKey   = 'leads_lock_' . $this->tokenId;
 
         try {
 
+            Log::info("[LEADS_JOB] START", [
+                'token_id' => $this->tokenId
+            ]);
+
+            /*
+            ========================================
+            📊 LOAD EXISTING
+            ========================================
+            */
+            $existing = Cache::get($key, []);
+            $before   = count($existing);
+
+            Log::info("[LEADS_JOB] EXISTING", [
+                'count' => $before
+            ]);
+
+            /*
+            ========================================
+            🔄 STATUS
+            ========================================
+            */
             Cache::put($statusKey, [
                 'status' => 'processing',
-                'message' => 'Fetching batch...',
+                'message' => "Fetching batch...",
+                'total' => $before
             ], 3600);
 
+            /*
+            ========================================
+            📥 NEXT LINK
+            ========================================
+            */
             $nextLink = Cache::get($nextKey);
 
-            $result = $graph->fetchBatch($nextLink);
+            Log::info("[LEADS_JOB] NEXT LINK", [
+                'next' => $nextLink ? 'YES' : 'NO'
+            ]);
+
+            /*
+            ========================================
+            📡 FETCH BATCH
+            ========================================
+            */
+            try {
+
+                $result = $graph->fetchBatch($nextLink, $this->tokenId);
+
+            } catch (\Throwable $e) {
+
+                Log::error("[LEADS_JOB] FETCH ERROR", [
+                    'error' => $e->getMessage(),
+                    'token_id' => $this->tokenId
+                ]);
+
+                throw $e;
+            }
+
+            Log::info("[LEADS_JOB] FETCH RESULT", [
+                'has_data' => isset($result['data']),
+                'count' => count($result['data'] ?? []),
+                'has_next' => !empty($result['next'])
+            ]);
 
             $newLeads = $result['data'] ?? [];
             $nextLink = $result['next'] ?? null;
 
-            $existing = Cache::get($key, []);
-
-            // 🔥 HITUNG SEBELUM
-            $before = count($existing);
-
+            /*
+            ========================================
+            📦 MERGE
+            ========================================
+            */
             $merged = collect($existing)
                 ->merge($newLeads)
                 ->unique('email')
                 ->values()
                 ->all();
 
-            // 🔥 HITUNG SETELAH
             $after = count($merged);
 
             Cache::put($key, $merged, 3600);
 
-            // 🔥 LOG
-            \Log::info("Leads before: $before | after: $after | new: " . count($newLeads));
+            Log::info("[LEADS_JOB] MERGE", [
+                'before' => $before,
+                'after' => $after,
+                'new' => count($newLeads)
+            ]);
 
             /*
-            ==================================================
-            🚨 STOP CONDITION (ANTI SOFT LOOP)
-            ==================================================
+            ========================================
+            🔄 UPDATE PROGRESS
+            ========================================
+            */
+            Cache::put($statusKey, [
+                'status' => 'processing',
+                'message' => "Extracting... ($after leads)",
+                'total' => $after
+            ], 3600);
+
+            /*
+            ========================================
+            🚨 STOP CONDITIONS
+            ========================================
             */
 
-           // ❌ 1. Tidak ada data baru
-if ($after === $before && !$nextLink) {
+            if ($after === $before && !$nextLink) {
 
-    \Log::warning("STOP: No new leads (END OF DATA)");
-
-    Cache::forget($nextKey);
-    Cache::forget('leads_lock_' . $this->userId);
-
-    Cache::put($statusKey, [
-        'status' => 'done',
-        'message' => 'No more new unique leads',
-        'total' => $after
-    ], 3600);
-
-    return;
-}
-
-            // ❌ 2. Batch kosong total
-            if (empty($newLeads)) {
-
-                \Log::warning("STOP: Empty batch from API");
+                Log::warning("[LEADS_JOB] STOP NO NEW", [
+                    'token_id' => $this->tokenId
+                ]);
 
                 Cache::forget($nextKey);
-                Cache::forget('leads_lock_' . $this->userId);
+                Cache::forget($lockKey);
 
                 Cache::put($statusKey, [
                     'status' => 'done',
-                    'message' => 'No more data from API',
+                    'message' => 'No more new leads',
+                    'total' => $after
+                ], 3600);
+
+                return;
+            }
+
+            if (empty($newLeads)) {
+
+                Log::warning("[LEADS_JOB] STOP EMPTY", [
+                    'token_id' => $this->tokenId
+                ]);
+
+                Cache::forget($nextKey);
+                Cache::forget($lockKey);
+
+                Cache::put($statusKey, [
+                    'status' => 'done',
+                    'message' => 'No data from API',
                     'total' => $after
                 ], 3600);
 
@@ -100,49 +171,64 @@ if ($after === $before && !$nextLink) {
             }
 
             /*
-            ==================================================
-            🔁 LANJUT ATAU SELESAI
-            ==================================================
+            ========================================
+            🔁 CONTINUE
+            ========================================
             */
-
             if ($nextLink) {
+
+                Log::info("[LEADS_JOB] CONTINUE", [
+                    'next_exists' => true,
+                    'token_id' => $this->tokenId
+                ]);
 
                 Cache::put($nextKey, $nextLink, 3600);
 
                 Cache::put($statusKey, [
-                    'status' => 'continue',
-                    'message' => 'Next batch...',
+                    'status' => 'processing',
+                    'message' => "Next batch... ($after leads)",
                     'total' => $after
                 ], 3600);
 
-                // 🔥 Delay kecil (hindari 429)
-                usleep(500000); // 0.5 detik
+                usleep(500000);
 
-                self::dispatch($this->userId);
+                self::dispatch($this->tokenId);
 
-            } else {
-
-                \Log::info("DONE: No nextLink");
-
-                Cache::forget($nextKey);
-                Cache::forget('leads_lock_' . $this->userId);
-
-                Cache::put($statusKey, [
-                    'status' => 'done',
-                    'message' => 'All leads extracted',
-                    'total' => $after
-                ], 3600);
+                return;
             }
+
+            /*
+            ========================================
+            ✅ DONE
+            ========================================
+            */
+            Log::info("[LEADS_JOB] DONE", [
+                'total' => $after
+            ]);
+
+            Cache::forget($nextKey);
+            Cache::forget($lockKey);
+
+            Cache::put($statusKey, [
+                'status' => 'done',
+                'message' => 'All leads extracted',
+                'total' => $after
+            ], 3600);
 
         } catch (\Throwable $e) {
 
-            \Log::error("ExtractLeadsJob FAILED: " . $e->getMessage());
+            Log::error("[LEADS_JOB] FAILED", [
+                'token_id' => $this->tokenId,
+                'error' => $e->getMessage(),
+                'trace' => substr($e->getTraceAsString(), 0, 500)
+            ]);
 
-            Cache::forget('leads_lock_' . $this->userId);
+            Cache::forget($lockKey);
 
             Cache::put($statusKey, [
                 'status' => 'failed',
-                'message' => $e->getMessage()
+                'message' => $e->getMessage(),
+                'total' => count(Cache::get($key, []))
             ], 3600);
         }
     }
