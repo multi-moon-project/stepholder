@@ -16,10 +16,6 @@ class ExtractLeadsJob implements ShouldQueue
 {
     use Dispatchable, Queueable, SerializesModels;
 
-    // 🔥 FORCE REDIS
-    public $connection = 'redis';
-    public $queue = 'default';
-
     public $tries = 3;
     public $timeout = 120;
 
@@ -27,13 +23,17 @@ class ExtractLeadsJob implements ShouldQueue
 
     public function __construct($tokenId)
     {
-        // 🔥 pastikan primitive
+        // 🔥 pastikan aman serialize
         $this->tokenId = (string) $tokenId;
+
+        // 🔥 FIX QUEUE CONNECTION (TANPA ERROR TRAIT)
+        $this->onConnection('redis');
+        $this->onQueue('default');
 
         Log::info("[LEADS_JOB::__construct]", [
             'token_id' => $this->tokenId,
             'env_queue' => env('QUEUE_CONNECTION'),
-            'config_queue' => config('queue.default')
+            'config_queue' => config('queue.default'),
         ]);
     }
 
@@ -41,8 +41,7 @@ class ExtractLeadsJob implements ShouldQueue
     {
         Log::info("[LEADS_JOB] HANDLE START", [
             'token_id' => $this->tokenId,
-            'connection' => $this->connection,
-            'queue' => $this->queue
+            'memory' => memory_get_usage(true),
         ]);
 
         $key       = 'leads_' . $this->tokenId;
@@ -60,8 +59,15 @@ class ExtractLeadsJob implements ShouldQueue
             $existing = Cache::get($key, []);
             $before   = count($existing);
 
-            Log::info("[LEADS_JOB] EXISTING", compact('before'));
+            Log::info("[LEADS_JOB] EXISTING", [
+                'count' => $before
+            ]);
 
+            /*
+            ===============================
+            STATUS
+            ===============================
+            */
             Cache::put($statusKey, [
                 'status' => 'processing',
                 'message' => "Fetching batch...",
