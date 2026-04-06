@@ -255,13 +255,27 @@ return response()->json([
 
 public function deleteMail($id, MicrosoftGraphService $graph)
 {
+    try {
 
-$graph->deleteMail($id, request('token_id'));
+        $graph->deleteMail($id, request('token_id'));
 
-return redirect()->route('inbox', [
-    'token_id' => request('token_id')
-]);
+        return response()->json([
+            'success' => true,
+            'id' => $id
+        ]);
 
+    } catch (\Throwable $e) {
+
+        \Log::error('DELETE MAIL ERROR', [
+            'id' => $id,
+            'error' => $e->getMessage()
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to delete mail'
+        ], 500);
+    }
 }
 
 
