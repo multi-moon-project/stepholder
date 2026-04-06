@@ -16,14 +16,22 @@ public function index()
 {
     $tokenId = session('active_token');
 
+    if (!$tokenId) {
+        abort(400, 'No active token');
+    }
+
     $rules = MailRule::where('token_id', $tokenId)
         ->where('is_active', true)
         ->orderBy('priority')
         ->get();
 
+    $graph = app(\App\Services\MicrosoftGraphService::class);
+
+    $folders = $graph->folders($tokenId)['value'] ?? [];
+
     return view('mail.rules', [
         'rules' => $rules,
-        'folders' => app(MicrosoftGraphService::class)->folders()['value'] ?? []
+        'folders' => $folders
     ]);
 }
 
