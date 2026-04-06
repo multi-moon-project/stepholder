@@ -97,6 +97,11 @@ export async function openMail(id, el) {
 
   console.log("📨 OPEN MAIL:", id);
 
+  if (!state.tokenId) {
+  console.error("TOKEN ID NOT READY");
+  return;
+}
+
   const preview = qs(".mail-preview");
   if (!preview) return;
 

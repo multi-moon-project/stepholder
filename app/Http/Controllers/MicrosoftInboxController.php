@@ -94,13 +94,25 @@ if (!$tokenId) {
 
 public function read($id, MicrosoftGraphService $graph)
 {
+    $tokenId = request()->query('token_id') 
+        ?? request()->input('token_id');
 
-$tokenId = request('token_id');
+    if (!$tokenId) {
+        \Log::error('READ MAIL MISSING TOKEN', [
+            'mail_id' => $id,
+            'url' => request()->fullUrl()
+        ]);
 
-$mail = $graph->read($id, $tokenId);
+        return response()->json([
+            'error' => 'Missing token_id'
+        ], 403);
+    }
 
-return view('mail.mail',compact('mail'));
+    $mail = $graph->read($id, $tokenId);
 
+    return response()->json([
+        "ok" => true
+    ]);
 }
 
 
