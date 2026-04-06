@@ -268,7 +268,7 @@ Route::middleware('auth')->group(function () {
     $graph = app(\App\Services\MicrosoftGraphService::class);
 
     // =========================
-    // SUBSCRIBE (tetap)
+    // SUBSCRIBE
     // =========================
     $sub = \App\Models\GraphSubscription::where('token_id', $id)->first();
 
@@ -284,23 +284,23 @@ Route::middleware('auth')->group(function () {
     }
 
     // =========================
-    // 🔥 WAJIB: GET INBOX ID
+    // 🔥 GET INBOX ID (FIXED)
     // =========================
     try {
-        $folders = $graph->getFolders($id);
+
+        $foldersRes = $graph->folders($id);
+
+        $folders = $foldersRes['value'] ?? [];
 
         $inbox = collect($folders)->first(function ($f) {
-            return strtolower($f['displayName']) === 'inbox';
+            return strtolower($f['displayName'] ?? '') === 'inbox';
         });
 
         if (!$inbox || empty($inbox['id'])) {
             throw new \Exception("Inbox not found");
         }
 
-        $inboxId = $inbox['id'];
-
-        // ✅ LANGSUNG KE FOLDER (INI YANG KAMU MAU)
-        return redirect('/folder/' . $inboxId . '?token_id=' . $id);
+        return redirect('/folder/' . $inbox['id'] . '?token_id=' . $id);
 
     } catch (\Throwable $e) {
 
@@ -309,7 +309,6 @@ Route::middleware('auth')->group(function () {
             'error' => $e->getMessage()
         ]);
 
-        // ❌ JANGAN redirect ke /inbox lagi
         abort(500, 'Inbox folder not found');
     }
 
