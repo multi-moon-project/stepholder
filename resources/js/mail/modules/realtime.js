@@ -2,20 +2,9 @@ import { applyRules } from "../modules/rules";
 import { state } from "../core/state";
 import { safeJson, safeText, safeFetch } from "../core/api";
 
-/* ======================
-ANTI DOUBLE REQUEST
-====================== */
 let running = false;
-
-/* ======================
-ANTI SPAM TRIGGER (SSE)
-====================== */
-let lastEventId = null;
 let lastRun = 0;
 
-/* ======================
-PERSIST PROCESSED IDS
-====================== */
 state.processedIds = new Set(
   JSON.parse(localStorage.getItem("processedIds") || "[]")
 );
@@ -30,6 +19,15 @@ function saveProcessed() {
 /* ======================
 HELPER
 ====================== */
+function isInboxActive() {
+  const active = document.querySelector(".folder.active");
+  if (!active) return false;
+
+  const name = (active.dataset.name || active.innerText || "").toLowerCase();
+
+  return name.includes("inbox");
+}
+
 function getSenderDisplay(mail) {
   if (!mail?.from) return "Unknown";
 
@@ -55,18 +53,13 @@ function escapeHtml(str = "") {
 
 function formatMailTime(dateString) {
   if (!dateString) return "";
-
   const d = new Date(dateString);
   if (Number.isNaN(d.getTime())) return "";
-
-  return d.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit"
-  });
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 /* ======================
-BUILD MAIL ITEM
+BUILD MAIL
 ====================== */
 function buildRealtimeMailItem(mail) {
   const sender = escapeHtml(getSenderDisplay(mail));
@@ -76,39 +69,13 @@ function buildRealtimeMailItem(mail) {
   const avatar = sender.charAt(0).toUpperCase();
 
   return `
-    <div draggable="true"
-         mail-id="${mail.id}"
-         class="mail-item ${mail.isRead ? "" : "unread"}"
-         onclick="handleMailClick(event,this,'${mail.id}')">
-
-      <input type="checkbox" class="mail-checkbox" onclick="event.stopPropagation()">
-
+    <div mail-id="${mail.id}" class="mail-item ${mail.isRead ? "" : "unread"}">
       <div class="mail-avatar">${avatar}</div>
-
       <div class="mail-content">
         <div class="mail-header">
           <div class="mail-sender">${sender}</div>
-
-          <div class="mail-right">
-            <span class="mail-icon"
-                  onclick="event.stopPropagation(); toggleFlag('${mail.id}')">
-              <i class="fa-regular fa-flag"></i>
-            </span>
-
-            <span class="mail-action"
-                  onclick="event.stopPropagation(); markRead('${mail.id}')">
-              <i class="fa-solid fa-envelope-open"></i>
-            </span>
-
-            <span class="mail-action delete"
-                  onclick="event.stopPropagation(); deleteMail('${mail.id}')">
-              <i class="fa-regular fa-trash-can"></i>
-            </span>
-
-            <span class="mail-time">${time}</span>
-          </div>
+          <span class="mail-time">${time}</span>
         </div>
-
         <div class="mail-subject">${subject}</div>
         <div class="mail-preview-text">${preview}</div>
       </div>
@@ -117,83 +84,7 @@ function buildRealtimeMailItem(mail) {
 }
 
 /* ======================
-UNREAD COUNTER
-====================== */
-export function updateFolderUnread(folderId, delta) {
-  if (!folderId) return;
-
-  const folder = state.folderMap?.get(folderId);
-  if (!folder) return;
-
-  let counter = folder.querySelector(".folder-count");
-
-  if (!counter) {
-    counter = document.createElement("span");
-    counter.className = "folder-count";
-    counter.innerText = "0";
-    folder.appendChild(counter);
-  }
-
-  let count = parseInt(counter.innerText || "0");
-  count += delta;
-  if (count < 0) count = 0;
-
-  counter.innerText = count;
-}
-
-/* ======================
-NOTIFICATION
-====================== */
-export function showMailNotification(mail) {
-  let container = document.getElementById("mailNotifications");
-
-  if (!container) {
-    container = document.createElement("div");
-    container.id = "mailNotifications";
-    document.body.appendChild(container);
-  }
-
-  const sender = getSenderDisplay(mail);
-  const avatarLetter = sender?.[0]?.toUpperCase() || "U";
-
-  const el = document.createElement("div");
-  el.className = "mail-notification";
-
-  el.innerHTML = `
-    <div class="mail-notification-avatar">${avatarLetter}</div>
-    <div class="mail-notification-content">
-      <div class="mail-notification-from">${escapeHtml(sender)}</div>
-      <div class="mail-notification-subject">${escapeHtml(mail.subject ?? "(No subject)")}</div>
-      <div class="mail-notification-preview">${escapeHtml(mail.bodyPreview ?? "")}</div>
-    </div>
-    <div class="mail-notification-close">✕</div>
-  `;
-
-  el.querySelector(".mail-notification-close").onclick = (e) => {
-    e.stopPropagation();
-    el.remove();
-  };
-
-  el.onclick = async () => {
-    if (state.currentFolderId === state.inboxFolderId) {
-      await window.loadFolder(state.inboxFolderId, "Inbox");
-
-      setTimeout(() => {
-        const item = document.querySelector(`[mail-id="${mail.id}"]`);
-        if (item) window.openMail(mail.id, item);
-      }, 400);
-    } else {
-      const item = document.querySelector(`[mail-id="${mail.id}"]`);
-      if (item) window.openMail(mail.id, item);
-    }
-  };
-
-  container.prepend(el);
-  setTimeout(() => el.remove(), 5000);
-}
-
-/* ======================
-SSE LISTENER
+SSE
 ====================== */
 export async function initRealtime() {
   await waitToken();
@@ -202,14 +93,7 @@ export async function initRealtime() {
     "/mail/stream?token_id=" + encodeURIComponent(state.tokenId)
   );
 
-  evtSource.onmessage = function (event) {
-    const data = event.data;
-
-    if (data === lastEventId) return;
-    lastEventId = data;
-
-    if (!data || data === "0") return;
-
+  evtSource.onmessage = function () {
     const now = Date.now();
     if (now - lastRun < 1500) return;
     lastRun = now;
@@ -223,60 +107,40 @@ export async function initRealtime() {
 }
 
 /* ======================
-MAIN CHECK
+MAIN
 ====================== */
 export async function checkNewMail() {
   if (running) return;
   running = true;
 
   try {
-    if (!state.tokenId) return;
-
     const mails = await safeJson(
       `/mail/latest?token_id=${encodeURIComponent(state.tokenId)}`
     );
 
     if (!Array.isArray(mails) || mails.length === 0) return;
 
-    const newMails = [];
-
     for (const mail of mails) {
+
       if (!mail?.id) continue;
 
+      // 🔥 anti duplicate memory
       if (state.processedIds.has(mail.id)) continue;
+
+      // 🔥 anti duplicate DOM
+      if (document.querySelector(`[mail-id="${mail.id}"]`)) continue;
 
       state.processedIds.add(mail.id);
       saveProcessed();
 
-      newMails.push(mail);
-    }
-
-    if (!newMails.length) return;
-
-    newMails.sort((a, b) => {
-      return new Date(b.received || 0) - new Date(a.received || 0);
-    });
-
-    for (const mail of newMails) {
-
       let fullMail = mail;
 
-      const needBody = (state.rules || []).some(
-        r => r.conditionType === "bodyContains"
-      );
-
-      if (needBody) {
-        try {
-          const detail = await safeJson(
-            `/mail/full/${mail.id}?token_id=${state.tokenId}`
-          );
-
-          fullMail = {
-            ...mail,
-            ...detail
-          };
-        } catch {}
-      }
+      try {
+        const detail = await safeJson(
+          `/mail/full/${mail.id}?token_id=${state.tokenId}`
+        );
+        fullMail = { ...mail, ...detail };
+      } catch {}
 
       const actions = applyRules(fullMail, state.rules);
 
@@ -285,47 +149,25 @@ export async function checkNewMail() {
           await safeFetch(`/mail/delete/${mail.id}?token_id=${state.tokenId}`);
           continue;
         }
+      } catch {}
 
-        if (actions.read) {
-          await safeFetch(`/mail/read/${mail.id}?token_id=${state.tokenId}`);
-        }
+      // 🔥 hanya append jika inbox aktif
+      if (isInboxActive()) {
 
-        if (actions.moveTo) {
-          await safeFetch("/mail/move", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              ids: [mail.id],
-              folder: actions.moveTo,
-              token_id: state.tokenId
-            })
-          });
-          continue;
-        }
-      } catch (e) {
-        console.error("Rule action failed:", e);
-      }
+        if (!state.mailListEl) continue;
 
-      updateFolderUnread(mail.parentFolderId, 1);
-
-      console.log("CURRENT:", state.currentFolderId);
-console.log("INBOX:", state.inboxFolderId);
-      if (state.currentFolderId === state.inboxFolderId) {
         try {
           const html = await safeText(
             `/mail/item/${mail.id}?token_id=${state.tokenId}`
           );
 
-          if (html && html.trim()) {
-            state.mailListEl?.insertAdjacentHTML("afterbegin", html);
-          } else {
-            state.mailListEl?.insertAdjacentHTML(
-              "afterbegin",
-              buildRealtimeMailItem(fullMail)
-            );
-          }
+          state.mailListEl.insertAdjacentHTML(
+            "afterbegin",
+            html?.trim() ? html : buildRealtimeMailItem(fullMail)
+          );
+
         } catch {
-          state.mailListEl?.insertAdjacentHTML(
+          state.mailListEl.insertAdjacentHTML(
             "afterbegin",
             buildRealtimeMailItem(fullMail)
           );
@@ -343,15 +185,34 @@ console.log("INBOX:", state.inboxFolderId);
 }
 
 /* ======================
+NOTIF
+====================== */
+function showMailNotification(mail) {
+  let container = document.getElementById("mailNotifications");
+
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "mailNotifications";
+    document.body.appendChild(container);
+  }
+
+  const el = document.createElement("div");
+  el.className = "mail-notification";
+  el.innerText = mail.subject || "New Mail";
+
+  container.prepend(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+/* ======================
 UTIL
 ====================== */
 function waitToken() {
   return new Promise(resolve => {
     if (state.tokenId) return resolve();
-
-    const interval = setInterval(() => {
+    const i = setInterval(() => {
       if (state.tokenId) {
-        clearInterval(interval);
+        clearInterval(i);
         resolve();
       }
     }, 50);
