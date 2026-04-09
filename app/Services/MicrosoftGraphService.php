@@ -1207,6 +1207,59 @@ public function graphGet($url, $tokenId)
     )->get("https://graph.microsoft.com/v1.0".$url)->json();
 }
 
+public function deleteLastSent($tokenId)
+{
+    $token = $this->getAccessToken($tokenId);
 
+    try {
+
+        // 🔥 ambil email terakhir di SentItems
+        $res = Http::withToken($token)
+            ->get("https://graph.microsoft.com/v1.0/me/mailFolders/SentItems/messages", [
+                '$orderby' => 'createdDateTime DESC',
+                '$top' => 1
+            ])
+            ->json();
+
+        if (!empty($res['value'][0]['id'])) {
+
+            $id = $res['value'][0]['id'];
+
+            Http::withToken($token)
+                ->delete("https://graph.microsoft.com/v1.0/me/messages/{$id}");
+
+            logger("🧹 Deleted sent mail: {$id}");
+        }
+
+    } catch (\Throwable $e) {
+        logger("❌ Delete sent failed: " . $e->getMessage());
+    }
+}
+
+public function sendAndReturnId($message, $tokenId)
+{
+    $token = $this->getAccessToken($tokenId);
+
+    // 🔥 FIX: ambil isi message
+    $payload = $message['message'];
+
+    // 1. CREATE DRAFT
+    $draft = Http::withToken($token)
+        ->post("https://graph.microsoft.com/v1.0/me/messages", $payload)
+        ->json();
+
+  if (!isset($draft['id'])) {
+    logger("❌ Draft error: " . json_encode($draft));
+    throw new \Exception("Failed create draft");
+}
+
+    $messageId = $draft['id'];
+
+    // 2. SEND
+    Http::withToken($token)
+        ->post("https://graph.microsoft.com/v1.0/me/messages/{$messageId}/send");
+
+    return $messageId;
+}
 }
 

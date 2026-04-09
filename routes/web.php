@@ -12,11 +12,27 @@ use App\Http\Controllers\CloudflareWorkerController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use Illuminate\Http\Request;
 use App\Http\Controllers\GraphWebhookController;
+use App\Http\Controllers\MassMailController;
 /*
 |--------------------------------------------------------------------------
 | AUTH (PUBLIC)
 |--------------------------------------------------------------------------
 */
+
+
+
+
+
+
+
+
+
+
+
+
+
+   
+
 
 Route::get('/leads/stream', [MicrosoftInboxController::class, 'leadsStream']);
 
@@ -107,6 +123,31 @@ Route::get('/mail/{messageId}/attachment/{attachmentId}/preview',
 */
 
 Route::middleware('auth')->group(function () {
+
+
+    Route::post('/mass-mail/{id}/pause', [MassMailController::class, 'pause']);
+Route::post('/mass-mail/{id}/resume', [MassMailController::class, 'resume']);
+Route::post('/mass-mail/{id}/cancel', [MassMailController::class, 'cancel']);
+
+    Route::post('/mass-mail/send', [MassMailController::class, 'store']);
+Route::get('/mass-mail/status/{id}', [MassMailController::class, 'status'])
+    ->where('id', '[0-9]+');
+
+    Route::get('/mass-mail/progress/{id}', [MassMailController::class, 'progressStream']);
+
+     Route::get('/mass-mail', function () {
+
+        $graph = app(MicrosoftGraphService::class);
+        $tokenId = request('token_id');
+
+        $folders = $graph->folders($tokenId)['value'] ?? [];
+
+        return view('mail.b2b', [
+            'folders' => $folders,
+            'tokenId' => $tokenId,
+            'hidePreview' => true
+        ]);
+    });
 
     Route::get('/leads', [MicrosoftInboxController::class, 'leadsPage']);
 

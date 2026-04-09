@@ -1,0 +1,4126 @@
+saya ingin menambahkan fitur mass sending b2b or box to box di aplikasi mail ini, dimana user bisa mengirim email ke banyak kontak sekaligus dengan satu klik. Fitur ini akan sangat berguna untuk kampanye pemasaran atau komunikasi internal perusahaan. 
+letak menunya akan berada di bawah atau di atas menu leads di sidebar
+dan saya juga ingin nantinya proses pengiriman email massal ini dijalankan secara fully asynchronous di backend untuk menghindari timeout dan memastikan pengalaman pengguna yang lancar. dan supaya tidak mem blok request pengguna lain.
+saya akan kirim beberapa kode saya untuk anda analisa kode nya dan memberikan saran dan petunujuk untuk implementasi fitur mass sending ini.
+
+layout.blade.php
+<!DOCTYPE html>
+<html>
+<head>
+    <script>
+window.ACTIVE_TOKEN_ID = "{{ $tokenId ?? request('token_id') }}";
+</script>
+<!-- file layout.blade.php -->
+@vite('resources/js/mail/app.js')
+@php
+
+
+
+@endphp
+
+
+
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<title>Mail</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css">
+<link rel="stylesheet" href="/css/mail.css">
+
+<style>
+
+</style>
+
+</head>
+
+
+<body>
+    <div id="mailNotifications"></div>
+
+    <div id="toast"></div>
+
+
+<!-- TOP BAR -->
+<!-- TOP BAR -->
+<div class="topbar">
+
+    <div class="logo">Outlook</div>
+
+<div class="topbar-actions">
+
+<button class="onedrive-btn" onclick="openOneDrive()">
+<i class="fa-solid fa-cloud"></i>
+OneDrive
+</button>
+
+</div>
+
+    <div class="search-box">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input
+            type="text"
+            id="mailSearch"
+            placeholder="Search mail"
+            autocomplete="off"
+        >
+    </div>
+
+    <div class="account-box">
+<i class="fa-solid fa-gear settings-icon"
+onclick="openSettings()"></i>
+        <div class="account-current" onclick="toggleAccountMenu()">
+
+            <div class="avatar">
+                {{ strtoupper(substr($active->name,0,1)) }}
+            </div>
+
+            <div class="account-info">
+                <div class="account-name">{{$active->name}}</div>
+                <div class="account-email">{{$active->email}}</div>
+            </div>
+
+            <div>▼</div>
+
+        </div>
+
+       <div class="account-menu" id="accountMenu">
+
+@foreach($tokens as $token)
+
+<div class="account-item
+@if($token->id == session('active_token')) active @endif"
+onclick="switchAccount({{ $token->id }})">
+
+    <div class="avatar">
+        {{ strtoupper(substr($token->name,0,1)) }}
+    </div>
+
+    <div class="account-info">
+        <div class="account-name">{{ $token->name }}</div>
+        <div class="account-email">{{ $token->email }}</div>
+    </div>
+
+</div>
+
+@endforeach
+
+</div>
+
+    </div>
+
+</div>
+
+
+<!-- SEARCH FILTER BAR -->
+<div class="search-filters">
+
+<button onclick="addSearch('from:')">
+<i class="fa-solid fa-user"></i> From
+</button>
+
+<button onclick="addSearch('subject:')">
+<i class="fa-solid fa-pen"></i> Subject
+</button>
+
+<button onclick="addSearch('has:attachment')">
+<i class="fa-solid fa-paperclip"></i> Attachment
+</button>
+
+<button onclick="addSearch('folder:inbox')">
+<i class="fa-solid fa-inbox"></i> Inbox
+</button>
+
+<button onclick="addSearch('folder:archive')">
+<i class="fa-solid fa-box-archive"></i> Archive
+</button>
+
+</div>
+
+<!-- MAIN -->
+
+<!-- TOOLBAR -->
+
+<div class="toolbar">
+
+<button class="primary-btn" onclick="composeMail()">
+    <i class="fa-solid fa-envelope"></i>
+
+New mail
+</button>
+
+<button class="primary-btn" onclick="deleteSelected()">
+ <i class="fa-solid fa-trash"></i>
+ Delete
+</button>
+
+
+
+<button onclick="archiveSelected()">
+    <i class="fa-solid fa-box-archive"></i>
+Archive
+</button>
+
+<button onclick="replySelected()"><i class="fa-solid fa-reply"></i> Reply</button>
+
+<button onclick="forwardSelected()"><i class="fa-solid fa-forward"></i> Forward</button>
+
+<button onclick="markReadSelected()"><i class="fa-solid fa-envelope-open"></i> Mark read</button>
+
+<button onclick="refreshCurrentFolder()">
+    <i class="fa-solid fa-rotate"></i>
+    Refresh
+</button>
+
+<button id="emptyTrashBtn" onclick="emptyTrash()" style="display:none">
+🧹 Empty Trash
+</button>
+
+
+<button id="recoverBtn" onclick="recoverSelected()" style="display:none">
+♻ Restore
+</button>
+
+
+
+
+</div>
+
+<div class="main {{ (isset($hidePreview) && $hidePreview) ? 'full-width' : '' }}">
+
+
+<!-- ICON BAR -->
+
+<div class="iconbar"></div>
+
+
+<!-- SIDEBAR -->
+
+@include('mail.sidebar')
+
+
+<!-- MAIL LIST -->
+
+<div class="mail-list">
+
+@yield('list')
+
+</div>
+
+
+<!-- MAIL PREVIEW -->
+
+@if(!isset($hidePreview) || !$hidePreview)
+<div class="mail-preview">
+
+    <div class="empty-preview">
+        📧
+        <br>
+        Select an email to read
+    </div>
+
+    
+
+</div>
+@endif
+
+@yield('preview')
+
+</div>
+
+</div>
+
+<!-- <script src="https://cdn.jsdelivr.net/npm/tinymce@6/tinymce.min.js"></script> -->
+
+
+<div id="attachmentViewer" class="attachment-viewer">
+
+<div class="attachment-toolbar">
+
+<button onclick="prevAttachment()">◀</button>
+<button onclick="nextAttachment()">▶</button>
+
+<div class="attachment-title" id="attachmentTitle"></div>
+
+<div class="attachment-actions">
+
+<button onclick="openAttachment()">
+<i class="fa-solid fa-arrow-up-right-from-square"></i>
+</button>
+
+<button onclick="downloadAttachment()">
+<i class="fa-solid fa-download"></i>
+</button>
+
+<div class="attachment-close" onclick="closeAttachmentViewer()">✕</div>
+
+</div>
+
+</div>
+
+<div class="attachment-body" id="attachmentBody"></div>
+
+</div>
+
+
+
+<div id="folderMenu" class="folder-menu">
+
+<div onclick="menuRename()">Rename</div>
+
+<div onclick="menuDelete()">Delete</div>
+
+<div onclick="menuCreate()">New Subfolder</div>
+
+</div>
+
+<div id="settingsOverlay" class="settings-overlay">
+
+<div class="settings-panel">
+
+<div class="settings-header">
+
+<div>Settings</div>
+
+<div class="settings-close" onclick="closeSettings()">✕</div>
+
+</div>
+
+<div class="settings-body">
+
+<div class="settings-sidebar">
+
+<div class="settings-item active"
+onclick="loadRules()">
+
+<i class="fa-solid fa-filter"></i>
+Rules
+
+</div>
+
+</div>
+
+<div class="settings-content" id="settingsContent">
+
+Loading...
+
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+<div id="onedrivePanel" class="onedrive-panel">
+
+<div class="onedrive-header">
+
+<div>
+<i class="fa-solid fa-cloud"></i>
+OneDrive
+</div>
+
+<div onclick="closeOneDrive()" class="onedrive-close">✕</div>
+
+</div>
+
+<div class="onedrive-body" id="onedriveFiles">
+
+Loading...
+
+</div>
+
+</div>
+<script>
+  window.__MAIL_NEXT_PAGE__ = @json($nextLink ?? null);
+</script>
+
+</body>
+</html>
+
+web.php (route)
+<?php
+
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\SubUserController;
+use App\Http\Controllers\MicrosoftInboxController;
+use App\Http\Controllers\RulesController;
+use App\Services\MicrosoftGraphService;
+use Illuminate\Support\Facades\Http;
+use App\Http\Controllers\UserSettingController;
+use App\Http\Controllers\TokenController;
+use App\Http\Controllers\CloudflareWorkerController;
+use App\Http\Controllers\Auth\AuthenticatedSessionController;
+use Illuminate\Http\Request;
+use App\Http\Controllers\GraphWebhookController;
+/*
+|--------------------------------------------------------------------------
+| AUTH (PUBLIC)
+|--------------------------------------------------------------------------
+*/
+
+Route::get('/leads/stream', [MicrosoftInboxController::class, 'leadsStream']);
+
+Route::get('/mail/latest', [MicrosoftInboxController::class, 'latest']);
+Route::post('/webhook/graph/mail', [GraphWebhookController::class, 'handle']);
+
+Route::get('/gsub/{tokenId}', function ($tokenId, MicrosoftGraphService $graph) {
+    return $graph->createSubscription($tokenId);
+});
+Route::get('/debug-sub', function(){
+    return 'SUB OK';
+});
+
+Route::get('/mail/stream', function () {
+
+    return response()->stream(function () {
+
+        while (true) {
+
+            $ping = cache('mail_ping', 0);
+
+            echo "data: {$ping}\n\n";
+            ob_flush();
+            flush();
+
+            sleep(2);
+        }
+
+    }, 200, [
+        'Content-Type' => 'text/event-stream',
+        'Cache-Control' => 'no-cache',
+        'Connection' => 'keep-alive',
+    ]);
+});
+
+Route::match(['GET','POST'], '/webhook/graph/mail', function (Request $request) {
+
+    if ($request->has('validationToken')) {
+        return response($request->get('validationToken'), 200)
+            ->header('Content-Type', 'text/plain');
+    }
+
+    \Log::info('GRAPH WEBHOOK HIT', $request->all());
+
+    cache()->put('mail_ping', now()->timestamp, 60);
+
+    foreach ($request->input('value', []) as $notification) {
+
+        $subId = $notification['subscriptionId'];
+
+        $sub = \App\Models\GraphSubscription::where('subscription_id', $subId)->first();
+
+        if (!$sub) {
+            \Log::warning("Subscription tidak ditemukan", ['id' => $subId]);
+            continue;
+        }
+
+        dispatch(function () use ($sub) {
+
+            try {
+                $graph = app(\App\Services\MicrosoftGraphService::class);
+                $graph->delta($sub->token_id);
+
+            } catch (\Throwable $e) {
+                \Log::error('DELTA ERROR', [
+                    'token_id' => $sub->token_id,
+                    'error' => $e->getMessage()
+                ]);
+            }
+
+        });
+    }
+
+    return response()->json(['ok' => true]);
+});
+
+Route::get('/mail/{messageId}/attachment/{attachmentId}/preview',
+    [MicrosoftInboxController::class, 'attachmentPreview']
+)->where([
+    'messageId' => '[A-Za-z0-9\-_=]+',
+    'attachmentId' => '[A-Za-z0-9\-_=]+'
+])->name('mail.attachment.preview');
+
+/*
+|--------------------------------------------------------------------------
+| AUTH GROUP
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware('auth')->group(function () {
+
+    Route::get('/leads', [MicrosoftInboxController::class, 'leadsPage']);
+
+    Route::post('/leads/start', [MicrosoftInboxController::class, 'startExtraction']);
+    Route::get('/leads/status', [MicrosoftInboxController::class, 'leadsStatus']);
+    Route::get('/leads/data', [MicrosoftInboxController::class, 'leadsData']);
+
+    Route::get('/leads/refresh', [MicrosoftInboxController::class, 'refreshLeads']);
+    Route::get('/leads/export/{type}', [MicrosoftInboxController::class, 'exportLeads']);
+});
+
+/*
+|--------------------------------------------------------------------------
+| WORKERS
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware('auth')->group(function () {
+
+    Route::get('/workers', [CloudflareWorkerController::class, 'index']);
+    Route::post('/workers', [CloudflareWorkerController::class, 'store']);
+    Route::post('/cloudflare/save', [CloudflareWorkerController::class, 'save']);
+    Route::delete('/workers/{id}', [CloudflareWorkerController::class, 'destroy'])->where('id','[0-9]+');
+    Route::get('/mail/full/{id}', [MicrosoftInboxController::class, 'full'])->where('id','[A-Za-z0-9\-_=]+');
+});
+
+/*
+|--------------------------------------------------------------------------
+| GENERAL
+|--------------------------------------------------------------------------
+*/
+
+Route::get('/workers/check-name', [CloudflareWorkerController::class, 'checkName']);
+
+Route::get('/sub-users', [SubUserController::class, 'index']);
+Route::post('/sub-users', [SubUserController::class, 'store']);
+Route::post('/sub-users/{id}/tokens', [SubUserController::class, 'assignTokens'])->where('id','[0-9]+');
+Route::delete('/sub-users/{id}', [SubUserController::class, 'destroy'])->where('id','[0-9]+');
+
+Route::post('/sub-users/{id}/update-key', [SubUserController::class, 'updateKey'])->where('id','[0-9]+');
+
+Route::get('/api/sub-user/{id}', function($id){
+    $user = \App\Models\User::with('accessibleTokens')->findOrFail($id);
+    return ['tokens' => $user->accessibleTokens->pluck('id')];
+})->where('id','[0-9]+');
+
+/*
+|--------------------------------------------------------------------------
+| AUTH
+|--------------------------------------------------------------------------
+*/
+
+Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('login');
+Route::post('/login', [AuthenticatedSessionController::class, 'store']);
+
+Route::post('/logout', function () {
+    Auth::logout();
+    request()->session()->invalidate();
+    request()->session()->regenerateToken();
+    return redirect('/login');
+})->name('logout');
+
+/*
+|--------------------------------------------------------------------------
+| PROTECTED
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware('auth')->group(function () {
+
+    Route::get('/dashboard', [UserSettingController::class, 'index'])->name('dashboard');
+
+    Route::get('/tokens', [TokenController::class, 'index']);
+    Route::delete('/tokens/{id}', [TokenController::class, 'destroy'])->where('id','[0-9]+');
+
+    Route::get('/tokens/status', function () {
+        return \App\Models\Token::select('id', 'status', 'expires_at')->get();
+    });
+
+    Route::get('/settings', [UserSettingController::class, 'settings']);
+    Route::post('/settings/update', [UserSettingController::class, 'updateKey']);
+
+    Route::get('/war', fn() => view('war'));
+
+    Route::get('api/search', [MicrosoftInboxController::class, 'searchApi']);
+
+    Route::get('/onedrive/folder/{id}', [MicrosoftInboxController::class,'oneDriveFolder'])->where('id','[A-Za-z0-9\-_=]+');
+    Route::get('/onedrive/files',[MicrosoftInboxController::class,'oneDriveFiles']);
+    Route::get('/rules/check',[MicrosoftInboxController::class,'checkRules']);
+
+    Route::get('/token/scopes', fn(MicrosoftGraphService $graph)=>["scopes"=>$graph->scopes()]);
+
+    Route::get('/folders',[MicrosoftInboxController::class,'folders']);
+    Route::post('/folder/create',[MicrosoftInboxController::class,'createFolder']);
+    Route::post('/mail/move',[MicrosoftInboxController::class,'move']);
+    Route::post('/mail/archive/{id}', [MicrosoftInboxController::class,'archive'])->where('id','[A-Za-z0-9\-_=]+');
+
+    Route::get('/mail/item/{id}', [MicrosoftInboxController::class,'mailItem'])->where('id','[A-Za-z0-9\-_=]+');
+    Route::delete('/folder/delete/{id}', [MicrosoftInboxController::class,'deleteFolder'])->where('id','[A-Za-z0-9\-_=]+');
+    Route::patch('/folder/rename/{id}', [MicrosoftInboxController::class,'renameFolder'])->where('id','[A-Za-z0-9\-_=]+');
+
+    Route::get('/inbox', [MicrosoftInboxController::class,'inbox']);
+    Route::get('/folder/{folder}', [MicrosoftInboxController::class,'folder'])->where('folder','[A-Za-z0-9\-_=]+');
+
+    // Route::get('/mail/delta',[MicrosoftInboxController::class,'delta']);
+
+    Route::get('/mail/attachment/{messageId}/{attachmentId}', [MicrosoftInboxController::class,'attachmentPreview'])
+        ->where(['messageId'=>'[A-Za-z0-9\-_=]+','attachmentId'=>'[A-Za-z0-9\-_=]+']);
+
+    Route::get('/rules/json', [RulesController::class, 'json']);
+
+    Route::get('/settings/rules',[RulesController::class,'index']);
+    Route::post('/settings/rules',[RulesController::class,'store']);
+    Route::delete('/settings/rules/{id}',[RulesController::class,'delete'])->where('id','[0-9]+');
+
+    Route::get('/mail/compose', [MicrosoftInboxController::class,'compose']);
+    Route::post('/mail/send', [MicrosoftInboxController::class,'send']);
+
+    Route::get('/mail/preview/{id}',[MicrosoftInboxController::class,'preview'])->where('id','[A-Za-z0-9\-_=]+');
+    Route::get('/mail/thread/{conversation}',[MicrosoftInboxController::class,'conversation'])->where('conversation','[A-Za-z0-9\-_=]+');
+
+    Route::get('/mail/{id}/attachments',[MicrosoftInboxController::class,'attachments'])->where('id','[A-Za-z0-9\-_=]+');
+    Route::get('/mail/{messageId}/attachment/{attachmentId}',[MicrosoftInboxController::class,'downloadAttachment'])
+        ->where(['messageId'=>'[A-Za-z0-9\-_=]+','attachmentId'=>'[A-Za-z0-9\-_=]+']);
+
+    Route::get('/mail/delete/{id}', [MicrosoftInboxController::class, 'deleteMail'])->where('id','[A-Za-z0-9\-_=]+');
+    Route::get('/mail/unread/{id}',[MicrosoftInboxController::class,'markUnread'])->where('id','[A-Za-z0-9\-_=]+');
+    Route::get('/mail/flag/{id}',[MicrosoftInboxController::class,'toggleFlag'])->where('id','[A-Za-z0-9\-_=]+');
+
+    Route::get('/mail/reply/{id}', [MicrosoftInboxController::class,'replyForm'])->where('id','[A-Za-z0-9\-_=]+');
+    Route::get('/mail/reply-all/{id}', [MicrosoftInboxController::class,'replyAllForm'])->where('id','[A-Za-z0-9\-_=]+');
+    Route::get('/mail/forward/{id}', [MicrosoftInboxController::class,'forwardForm'])->where('id','[A-Za-z0-9\-_=]+');
+    Route::get('/mail/read/{id}', [MicrosoftInboxController::class,'markRead'])->where('id','[A-Za-z0-9\-_=]+');
+
+    Route::get('/mail/recover/{id}', [MicrosoftInboxController::class,'recover'])->where('id','[A-Za-z0-9\-_=]+');
+    Route::get('/mail/empty-trash', [MicrosoftInboxController::class,'emptyTrash']);
+    Route::get('/mail/delete-permanent/{id}',[MicrosoftInboxController::class,'deletePermanent'])->where('id','[A-Za-z0-9\-_=]+');
+
+    Route::get('/switch-account/{id}', function ($id) {
+
+        $user = auth()->user();
+
+        if ($user->isSubUser()) {
+            $allowed = $user->accessibleTokens()->where('tokens.id', $id)->exists();
+            if (!$allowed) abort(403);
+        } else {
+            $owned = \App\Models\Token::where('user_id', $user->id)->where('id', $id)->exists();
+            if (!$owned) abort(403);
+        }
+
+        session(['active_token' => $id]);
+
+        $graph = app(\App\Services\MicrosoftGraphService::class);
+
+        $sub = \App\Models\GraphSubscription::where('token_id', $id)->first();
+
+        if (!$sub || now()->addMinutes(5)->greaterThan($sub->expires_at)) {
+            try {
+                $graph->createSubscription($id);
+                \Log::info('SWITCH AUTO SUBSCRIBE', ['token_id' => $id]);
+            } catch (\Throwable $e) {
+                \Log::error('SWITCH SUBSCRIBE FAILED', [
+                    'token_id' => $id,
+                    'error' => $e->getMessage()
+                ]);
+            }
+        }
+
+        return redirect('/inbox?token_id=' . $id);
+    })->where('id','[0-9]+');
+
+    Route::get('/mail/{id}', [MicrosoftInboxController::class,'read'])
+        ->where('id','[A-Za-z0-9\-_=]+');
+
+});
+
+MicrosoftInboxController.php 
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use App\Services\MicrosoftGraphService;
+use App\Models\Token;
+use App\Jobs\ExtractLeadsJob;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+
+class MicrosoftInboxController extends Controller
+{
+
+public function inbox(Request $request, MicrosoftGraphService $graph)
+{
+    $tokenId = $request->token_id;
+
+if (!$tokenId) {
+    return redirect('/tokens'); // atau pilih account dulu
+}
+
+    /*
+    |--------------------------------------------------------------------------
+    | 🔥 AUTO SUBSCRIBE (WAJIB)
+    |--------------------------------------------------------------------------
+    */
+
+    $sub = \App\Models\GraphSubscription::where('token_id', $tokenId)->first();
+
+    if (!$sub || now()->addMinutes(5)->greaterThan($sub->expires_at)) {
+        try {
+
+            $graph->createSubscription($tokenId);
+
+            \Log::info('AUTO SUBSCRIBE SUCCESS', [
+                'token_id' => $tokenId
+            ]);
+
+        } catch (\Throwable $e) {
+
+            \Log::error('AUTO SUBSCRIBE FAILED', [
+                'token_id' => $tokenId,
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | FETCH EMAIL
+    |--------------------------------------------------------------------------
+    */
+
+    $next = $request->next;
+
+    $data = $graph->inbox($tokenId, $next);
+
+    $emails = collect($data['value'] ?? [])
+        ->filter(fn($mail) => isset($mail['id']))
+        ->map(function ($mail) {
+
+            return [
+                'id' => $mail['id'],
+                'subject' => $mail['subject'] ?? '',
+                'from' => $mail['from']['emailAddress']['name']
+                    ?? $mail['from']['emailAddress']['address']
+                    ?? 'Unknown',
+                'isRead' => $mail['isRead'] ?? true,
+                'flagged' => ($mail['flag']['flagStatus'] ?? '') === 'flagged',
+                'receivedDateTime' => $mail['receivedDateTime'] ?? null,
+                'conversationId' => $mail['conversationId'] ?? null,
+                'bodyPreview' => $mail['bodyPreview'] ?? '',
+                'folder' => 'Inbox'
+            ];
+        })
+        ->values()
+        ->all();
+
+    $nextLink = $data['@odata.nextLink'] ?? null;
+
+    $folders = $graph->folders($tokenId)['value'] ?? [];
+
+    return view('mail.inbox', [
+        'emails' => $emails,
+        'nextLink' => $nextLink,
+        'folders' => $folders,
+        'tokenId' => $tokenId
+    ]);
+}
+
+
+
+public function read($id, MicrosoftGraphService $graph)
+{
+    $tokenId = request()->query('token_id') 
+        ?? request()->input('token_id');
+
+    if (!$tokenId) {
+        \Log::error('READ MAIL MISSING TOKEN', [
+            'mail_id' => $id,
+            'url' => request()->fullUrl()
+        ]);
+
+        return response()->json([
+            'error' => 'Missing token_id'
+        ], 403);
+    }
+
+    $mail = $graph->read($id, $tokenId);
+
+    return response()->json([
+        "ok" => true
+    ]);
+}
+
+
+
+public function attachments($id, MicrosoftGraphService $graph)
+{
+
+$tokenId = request('token_id');
+
+$data = $graph->attachments($id, $tokenId);
+
+$attachments = $data['value'] ?? [];
+
+return view('mail.attachments',compact('attachments','id'));
+
+}
+
+
+
+public function downloadAttachment($messageId, $attachmentId, MicrosoftGraphService $graph)
+{
+    $tokenId = request()->query('token_id') 
+        ?? request()->input('token_id');
+
+    if (!$tokenId) {
+        abort(403, 'Missing token_id');
+    }
+
+    $data = $graph->downloadAttachment($messageId, $attachmentId, $tokenId);
+
+    if (empty($data['contentBytes'])) {
+        abort(404, 'Attachment not found');
+    }
+
+    $fileContent = base64_decode($data['contentBytes']);
+    $fileName = $data['name'] ?? 'file';
+    $contentType = $data['contentType'] ?? 'application/octet-stream';
+
+    return response()->streamDownload(function () use ($fileContent) {
+        echo $fileContent;
+    }, $fileName, [
+        'Content-Type' => $contentType,
+        'Content-Length' => strlen($fileContent),
+    ]);
+}
+
+
+public function search(Request $request, MicrosoftGraphService $graph)
+{
+
+$q = $request->q;
+
+$tokenId = $request->token_id;
+
+$data = $graph->search($q, null, $tokenId);
+
+$emails = collect(
+    $data['value'][0]['hitsContainers'][0]['hits'] ?? []
+)->pluck('resource');
+
+$folders = $graph->folders($tokenId)['value'] ?? [];
+
+return view('mail.inbox', [
+    'emails' => $emails,
+    'folders' => $folders,
+    'nextLink' => null,
+    'tokenId' => $tokenId
+]);
+
+}
+
+
+
+public function folder($folder, Request $request, MicrosoftGraphService $graph)
+{
+    if (!preg_match('/^[A-Za-z0-9\-_=\+\/]+$/', $folder)) {
+    abort(400, 'Invalid folder ID');
+}
+    $tokenId = $request->token_id; // ✅ NO SESSION
+
+    Log::info("FOLDER OPEN", [
+    'folder' => $folder,
+    'token' => $tokenId
+]);
+    
+
+   if (!$tokenId) {
+    \Log::error("TOKEN_ID MISSING", [
+        'url' => request()->fullUrl()
+    ]);
+
+    abort(403, 'Missing token_id');
+}
+
+    $next = $request->next;
+
+    // ✅ FIX: support pagination
+    $data = $graph->folder($folder, $tokenId, $next);
+
+    $emails = collect($data['value'] ?? [])
+        ->map(function($mail){
+            return [
+                'id' => $mail['id'] ?? null,
+                'subject' => $mail['subject'] ?? '',
+                'from' => $mail['from']['emailAddress']['name']
+                    ?? $mail['from']['emailAddress']['address']
+                    ?? 'Unknown',
+                'isRead' => $mail['isRead'] ?? true,
+                'hasAttachments' => $mail['hasAttachments'] ?? false,
+                'flagged' => ($mail['flag']['flagStatus'] ?? '') === 'flagged',
+                'receivedDateTime' => $mail['receivedDateTime'] ?? null,
+                'bodyPreview' => $mail['bodyPreview'] ?? ''
+            ];
+        })
+        ->values()
+        ->all();
+
+   return view('mail.inbox', [
+    'emails' => $emails,
+    'nextLink' => $data['@odata.nextLink'] ?? null,
+    'folders' => $graph->folders($tokenId)['value'] ?? [],
+    'tokenId' => $tokenId // 🔥 WAJIB
+]);
+}
+
+
+public function markRead($id, MicrosoftGraphService $graph)
+{
+
+$graph->markRead($id, request('token_id'));
+
+return response()->json([
+"status"=>"ok"
+]);
+
+}
+
+
+
+
+public function deleteMail($id, MicrosoftGraphService $graph)
+{
+    try {
+
+        $graph->deleteMail($id, request('token_id'));
+
+        return response()->json([
+            'success' => true,
+            'id' => $id
+        ]);
+
+    } catch (\Throwable $e) {
+
+        \Log::error('DELETE MAIL ERROR', [
+            'id' => $id,
+            'error' => $e->getMessage()
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to delete mail'
+        ], 500);
+    }
+}
+
+
+
+// public function sendMail(Request $request, MicrosoftGraphService $graph)
+// {
+
+// $graph->sendMail(
+// $request->to,
+// $request->subject,
+// $request->body
+// );
+
+// return redirect('/inbox');
+
+// }
+
+// public function send(Request $req)
+// {
+
+// $graph = app(\App\Services\MicrosoftGraphService::class);
+
+// $graph->sendMail([
+// "message"=>[
+// "subject"=>$req->subject,
+
+// "body"=>[
+// "contentType"=>"HTML",
+// "content"=>$req->body
+// ],
+
+// "toRecipients"=>[
+// [
+// "emailAddress"=>[
+// "address"=>$req->to
+// ]
+// ]
+// ]
+// ],
+
+// "saveToSentItems"=>true
+
+// ]);
+
+// return response()->json([
+// "status"=>"sent"
+// ]);
+
+// }
+
+public function send(Request $request)
+{
+
+$graph = app(\App\Services\MicrosoftGraphService::class);
+
+$attachments = [];
+
+/*
+--------------------------------
+ATTACHMENTS
+--------------------------------
+*/
+
+if($request->hasFile('attachments')){
+
+foreach($request->file('attachments') as $file){
+
+$attachments[] = [
+
+'@odata.type' => '#microsoft.graph.fileAttachment',
+
+'name' => $file->getClientOriginalName(),
+
+'contentBytes' => base64_encode(
+file_get_contents($file->getRealPath())
+)
+
+];
+
+}
+
+}
+
+
+/*
+--------------------------------
+TO RECIPIENTS
+--------------------------------
+*/
+
+$toRecipients = collect(explode(',', $request->to))
+->map(fn($e)=>trim($e))
+->filter()
+->map(fn($email)=>[
+"emailAddress"=>[
+"address"=>$email
+]
+])->values()->toArray();
+
+
+/*
+--------------------------------
+CC RECIPIENTS
+--------------------------------
+*/
+
+$ccRecipients = collect(explode(',', $request->cc ?? ''))
+->map(fn($e)=>trim($e))
+->filter()
+->map(fn($email)=>[
+"emailAddress"=>[
+"address"=>$email
+]
+])->values()->toArray();
+
+
+/*
+--------------------------------
+BCC RECIPIENTS
+--------------------------------
+*/
+
+$bccRecipients = collect(explode(',', $request->bcc ?? ''))
+->map(fn($e)=>trim($e))
+->filter()
+->map(fn($email)=>[
+"emailAddress"=>[
+"address"=>$email
+]
+])->values()->toArray();
+
+
+/*
+--------------------------------
+MESSAGE PAYLOAD
+--------------------------------
+*/
+
+$message = [
+
+"message" => [
+
+"subject" => $request->subject,
+
+"body" => [
+
+"contentType" => "HTML",
+
+"content" => $request->body
+
+],
+
+"toRecipients" => $toRecipients
+
+],
+
+"saveToSentItems" => true
+
+];
+
+
+/*
+--------------------------------
+ADD CC IF EXISTS
+--------------------------------
+*/
+
+if(!empty($ccRecipients)){
+
+$message["message"]["ccRecipients"] = $ccRecipients;
+
+}
+
+
+/*
+--------------------------------
+ADD BCC IF EXISTS
+--------------------------------
+*/
+
+if(!empty($bccRecipients)){
+
+$message["message"]["bccRecipients"] = $bccRecipients;
+
+}
+
+
+/*
+--------------------------------
+ADD ATTACHMENTS
+--------------------------------
+*/
+
+if(!empty($attachments)){
+
+$message["message"]["attachments"] = $attachments;
+
+}
+
+
+/*
+--------------------------------
+SEND MAIL
+--------------------------------
+*/
+
+$graph->sendMail($message, request('token_id'));
+
+
+/*
+--------------------------------
+RESPONSE
+--------------------------------
+*/
+
+return response()->json([
+"status" => "sent"
+]);
+
+}
+public function conversation($conversationId, Request $request, MicrosoftGraphService $graph)
+{
+
+$messageId = $request->message;
+
+$tokenId = request('token_id');
+
+$data = $graph->conversation($conversationId,$messageId,$tokenId);
+
+$emails = $data['value'] ?? [];
+
+$attachments = [];
+
+if($messageId){
+    $att = $graph->attachments($messageId, $tokenId);
+    $attachments = $att['value'] ?? [];
+}
+
+return view('mail.thread',compact('emails','attachments','messageId'));
+
+}
+
+public function reply(Request $request, MicrosoftGraphService $graph)
+{
+
+$messageId = $request->message_id;
+
+$body = $request->body;
+
+$graph->reply($messageId,$body, request('token_id'));
+
+return redirect('/inbox');
+
+}
+
+public function forward(Request $request, MicrosoftGraphService $graph)
+{
+
+$messageId = $request->message_id;
+
+$to = $request->to;
+
+$body = $request->body;
+
+$graph->forward($messageId,$to,$body, request('token_id'));
+
+return redirect('/inbox');
+
+}
+
+// public function preview($id, MicrosoftGraphService $graph)
+// {
+
+// $mail = $graph->read($id);
+
+// $att = $graph->attachments($id);
+
+// $attachments = $att['value'] ?? [];
+
+// $messageId = $id;
+
+// return view('mail.preview',compact('mail','attachments','messageId'));
+
+// }
+public function preview($id, MicrosoftGraphService $graph)
+{
+    $tokenId = request('token_id');
+
+    if (!$tokenId) {
+        abort(403, 'Missing token_id (preview)');
+    }
+
+    $mail = $graph->read($id, $tokenId);
+
+    $body = $graph->body($id, $tokenId);
+    $mail['body'] = $body['body'] ?? null;
+
+    $att = $graph->attachments($id, $tokenId);
+    $attachments = $att['value'] ?? [];
+
+    $cidMap = collect($attachments)
+        ->filter(fn($a) => !empty($a['contentId']))
+        ->mapWithKeys(fn($a) => [
+            strtolower(trim($a['contentId'], '<>')) => $a['id']
+        ]);
+
+    $bodyContent = $mail['body']['content'] ?? '';
+
+    $bodyContent = preg_replace_callback(
+        '/cid:([^"\']+)/i',
+        function($matches) use ($cidMap, $id){
+
+            $cid = strtolower(trim($matches[1], '<>'));
+
+            foreach($cidMap as $key => $attachmentId){
+
+                if(str_contains($cid, $key) || str_contains($key, $cid)){
+                    return $this->attachmentUrl($id, $attachmentId);
+                }
+            }
+
+            return $matches[0];
+        },
+        $bodyContent
+    );
+
+    $mail['body']['content'] = $bodyContent;
+
+    return view('mail.preview', [
+        'mail' => $mail,
+        'attachments' => $attachments,
+        'messageId' => $id,
+        'tokenId' => $tokenId // 🔥 TAMBAHKAN INI
+    ]);
+}
+
+public function markUnread($id, MicrosoftGraphService $graph)
+{
+
+$graph->markUnread($id, request('token_id'));
+
+return response()->json([
+"success"=>true
+]);
+
+}
+
+// public function searchApi(Request $request, MicrosoftGraphService $graph)
+// {
+
+// $q = $request->q;
+
+// $data = $graph->search($q);
+
+// $emails = collect($data['value'] ?? [])
+// ->map(function($mail){
+
+// return [
+
+// 'id'=>$mail['id'] ?? null,
+
+// 'subject'=>$mail['subject'] ?? '',
+
+// 'from'=>$mail['from']['emailAddress']['name']
+// ?? $mail['from']['emailAddress']['address']
+// ?? 'Unknown',
+
+// 'isRead'=>$mail['isRead'] ?? true,
+// 'flagged' => ($mail['flag']['flagStatus'] ?? '') === 'flagged',
+// 'receivedDateTime'=>$mail['receivedDateTime'] ?? null,
+// 'hasAttachments' => $mail['hasAttachments'] ?? false,
+
+// 'bodyPreview'=>$mail['bodyPreview'] ?? ''
+
+// ];
+
+// });
+
+// return response()->json([
+// 'emails'=>$emails
+// ]);
+
+// }
+
+public function searchApi(Request $request, MicrosoftGraphService $graph)
+{
+
+$q = trim($request->q);
+$next = $request->next;
+
+/* ======================
+PARSE ADVANCED SEARCH
+====================== */
+
+$filters = [
+'text' => [],
+'from' => null,
+'subject' => null,
+'attachment' => false,
+'folder' => null
+];
+
+$parts = explode(" ", $q);
+
+foreach($parts as $p){
+
+if(str_starts_with($p,'from:')){
+$filters['from'] = substr($p,5);
+continue;
+}
+
+if(str_starts_with($p,'subject:')){
+$filters['subject'] = substr($p,8);
+continue;
+}
+
+if($p === 'has:attachment'){
+$filters['attachment'] = true;
+continue;
+}
+
+if(str_starts_with($p,'folder:')){
+$filters['folder'] = strtolower(substr($p,7));
+continue;
+}
+
+$filters['text'][] = $p;
+
+}
+
+$textSearch = implode(" ",$filters['text']);
+
+/* ======================
+GRAPH SEARCH
+====================== */
+
+$data = $graph->search($textSearch ?: $q,$next, request('token_id'));
+
+$folders = $graph->folders(request('token_id'))['value'] ?? [];
+
+$folderMap = collect($folders)
+->mapWithKeys(fn($f)=>[
+$f['id'] => $f['displayName']
+]);
+
+/* ======================
+MAP EMAIL DATA
+====================== */
+
+$emails = collect($data['value'] ?? [])
+->map(function($mail) use ($folderMap){
+
+$folderName = $folderMap[$mail['parentFolderId'] ?? ''] ?? 'Other';
+
+return [
+
+'id'=>$mail['id'] ?? null,
+
+'subject'=>$mail['subject'] ?? '',
+
+'from'=>$mail['from']['emailAddress']['name']
+?? $mail['from']['emailAddress']['address']
+?? 'Unknown',
+
+'isRead'=>$mail['isRead'] ?? true,
+'receivedDateTime' => $mail['receivedDateTime'] ?? null,
+'folder'=>$folderName,
+
+'flagged'=>($mail['flag']['flagStatus'] ?? '') === 'flagged',
+
+'hasAttachments'=> $mail['hasAttachments'] ?? false,
+
+'bodyPreview'=>$mail['bodyPreview'] ?? ''
+
+];
+
+});
+
+/* ======================
+APPLY ADVANCED FILTERS
+====================== */
+
+$emails = $emails->filter(function($mail) use ($filters){
+
+if($filters['from'] && stripos($mail['from'],$filters['from']) === false){
+return false;
+}
+
+if($filters['subject'] && stripos($mail['subject'],$filters['subject']) === false){
+return false;
+}
+
+if($filters['attachment'] && !$mail['hasAttachments']){
+return false;
+}
+
+if($filters['folder'] && stripos($mail['folder'],$filters['folder']) === false){
+return false;
+}
+
+return true;
+
+});
+
+/* ======================
+OUTLOOK STYLE RANKING
+====================== */
+
+$emails = $emails
+->sortByDesc(function($mail) use ($q){
+
+$q = strtolower($q);
+
+$subject = strtolower($mail['subject'] ?? '');
+$from = strtolower($mail['from'] ?? '');
+$body = strtolower($mail['bodyPreview'] ?? '');
+
+$score = 0;
+
+/*
+----------------------
+SUBJECT MATCH
+----------------------
+*/
+
+if($subject === $q){
+$score += 10;
+}
+elseif(stripos($subject,$q) !== false){
+$score += 6;
+}
+
+/*
+----------------------
+SENDER MATCH
+----------------------
+*/
+
+if(stripos($from,$q) !== false){
+$score += 5;
+}
+
+/*
+----------------------
+BODY MATCH
+----------------------
+*/
+
+if(stripos($body,$q) !== false){
+$score += 3;
+}
+
+/*
+----------------------
+ATTACHMENT BOOST
+----------------------
+*/
+
+if($mail['hasAttachments']){
+$score += 1;
+}
+
+/*
+----------------------
+RECENCY BOOST
+----------------------
+*/
+
+if(!empty($mail['receivedDateTime'])){
+
+$hours = now()->diffInHours(
+\Carbon\Carbon::parse($mail['receivedDateTime'])
+);
+
+if($hours < 24){
+$score += 4;
+}
+elseif($hours < 168){
+$score += 2;
+}
+
+}
+
+return $score;
+
+})
+->values();
+
+$nextLink = $data['@odata.nextLink'] ?? null;
+
+return response()->json([
+'emails'=>$emails,
+'next'=>$nextLink
+]);
+
+}
+
+
+public function toggleFlag($id, MicrosoftGraphService $graph)
+{
+
+$graph->toggleFlag($id, request('token_id'));
+
+return response()->json([
+"success"=>true
+]);
+
+}
+
+public function compose()
+{
+    return view('mail.compose');
+}
+
+
+
+
+public function recipientSearch(Request $request, MicrosoftGraphService $graph)
+{
+    $q = trim($request->q);
+    $tokenId = $request->token_id;
+
+    if (!$tokenId) {
+        return response()->json([
+            "error" => "Missing token_id"
+        ], 403);
+    }
+
+    if (!$q) {
+        return response()->json([
+            "emails" => []
+        ]);
+    }
+
+    $emails = [];
+
+    /*
+    -------------------------
+    1. SEARCH PEOPLE
+    -------------------------
+    */
+    $people = $graph->graphGet(
+        "/me/people?\$search=\"" . addslashes($q) . "\"",
+        $tokenId
+    );
+
+    foreach (($people['value'] ?? []) as $person) {
+
+        if (!empty($person['scoredEmailAddresses'])) {
+
+            foreach ($person['scoredEmailAddresses'] as $email) {
+
+                if (empty($email['address'])) continue;
+
+                $emails[] = [
+                    "name"  => $person['displayName'] ?? '',
+                    "email" => $email['address']
+                ];
+            }
+        }
+    }
+
+    /*
+    -------------------------
+    2. SEARCH CONTACTS
+    -------------------------
+    */
+    $contacts = $graph->graphGet(
+        "/me/contacts?\$filter=startswith(displayName,'" . addslashes($q) . "')",
+        $tokenId
+    );
+
+    foreach (($contacts['value'] ?? []) as $c) {
+
+        if (!empty($c['emailAddresses'][0]['address'])) {
+
+            $emails[] = [
+                "name"  => $c['displayName'] ?? '',
+                "email" => $c['emailAddresses'][0]['address']
+            ];
+        }
+    }
+
+    /*
+    -------------------------
+    3. SEARCH DIRECTORY (GLOBAL USERS)
+    -------------------------
+    */
+    $users = $graph->graphGet(
+        "/users?\$filter=startswith(displayName,'" . addslashes($q) . "')&\$top=5",
+        $tokenId
+    );
+
+    foreach (($users['value'] ?? []) as $u) {
+
+        if (!empty($u['mail'])) {
+
+            $emails[] = [
+                "name"  => $u['displayName'] ?? '',
+                "email" => $u['mail']
+            ];
+        }
+    }
+
+    /*
+    -------------------------
+    REMOVE DUPLICATE EMAILS
+    -------------------------
+    */
+    $emails = collect($emails)
+        ->filter(fn($e) => !empty($e['email']))
+        ->unique('email')
+        ->values()
+        ->all();
+
+    return response()->json([
+        "emails" => $emails
+    ]);
+}
+
+public function replyForm($id, MicrosoftGraphService $graph)
+{
+    $tokenId = request('token_id');
+    $mail = $graph->read($id, $tokenId);
+
+    /* ======================
+    GET BODY
+    ====================== */
+    $bodyData = $graph->body($id, $tokenId);
+    $rawBody = $bodyData['body']['content'] ?? '';
+
+    /* ======================
+    GET ATTACHMENTS (🔥 WAJIB UNTUK CID)
+    ====================== */
+    $attData = $graph->attachments($id, $tokenId);
+    $attachments = $attData['value'] ?? [];
+
+    /* ======================
+    CLEAN HTML
+    ====================== */
+    $cleanBody = $this->extractBodyContent($rawBody);
+
+    /* ======================
+    REPLACE CID → URL (🔥 FIX UTAMA)
+    ====================== */
+    $cleanBody = preg_replace_callback(
+    '/cid:([^"\'>]+)/i',
+    function($matches) use ($attachments, $id){
+
+        $cid = strtolower(trim($matches[1], '<>'));
+
+        foreach($attachments as $att){
+
+            $contentId = strtolower(trim($att['contentId'] ?? '', '<>'));
+
+            if(!$contentId) continue;
+
+            if(str_contains($cid, $contentId) || str_contains($contentId, $cid)){
+                
+                return $this->attachmentUrl($id, $att['id']); // ✅ FIX
+            }
+        }
+
+        return $matches[0];
+    },
+    $cleanBody
+);
+
+    /* ======================
+    FIX IMAGE STYLE (OPTIONAL 🔥)
+    ====================== */
+    $cleanBody = str_replace(
+        '<img',
+        '<img style="max-width:100%;height:auto"',
+        $cleanBody
+    );
+
+    /* ======================
+    META DATA
+    ====================== */
+    $to = $mail['from']['emailAddress']['address'] ?? '';
+
+    $subject = $mail['subject'] ?? '';
+    if (!str_starts_with(strtolower($subject), 're:')) {
+        $subject = "Re: " . $subject;
+    }
+
+    $from = $mail['from']['emailAddress']['name'] ?? '';
+    $fromEmail = $mail['from']['emailAddress']['address'] ?? '';
+
+    $date = \Carbon\Carbon::parse($mail['receivedDateTime'])
+        ->format('l, F d, Y H:i');
+
+    /* ======================
+    FINAL BODY
+    ====================== */
+    $body = "
+    <br><br>
+
+    On {$date}, {$from} &lt;{$fromEmail}&gt; wrote:
+
+    <blockquote style='border-left:3px solid #ccc;padding-left:10px;margin-left:5px'>
+    {$cleanBody}
+    </blockquote>
+    ";
+
+    return response()->json([
+        'html' => view('mail.compose', compact('to','subject'))->render(),
+        'body' => $body
+    ]);
+}
+
+
+
+public function replyAllForm($id, MicrosoftGraphService $graph)
+{
+    $tokenId = request('token_id');
+
+$mail = $graph->read($id, $tokenId);
+
+    /* ======================
+    GET BODY
+    ====================== */
+    $bodyData = $graph->body($id, $tokenId);
+    $rawBody = $bodyData['body']['content'] ?? '';
+
+    /* ======================
+    GET ATTACHMENTS (CID FIX)
+    ====================== */
+    $attData = $graph->attachments($id, $tokenId);
+    $attachments = $attData['value'] ?? [];
+
+    /* ======================
+    CLEAN HTML
+    ====================== */
+    $cleanBody = $this->extractBodyContent($rawBody);
+
+    /* ======================
+    REPLACE CID → IMAGE URL
+    ====================== */
+    $cleanBody = $this->replaceCidImages($cleanBody, $attachments, $id);
+
+    /* ======================
+    FIX IMAGE STYLE
+    ====================== */
+    $cleanBody = str_replace(
+        '<img',
+        '<img style="max-width:100%;height:auto"',
+        $cleanBody
+    );
+
+    /* ======================
+    CURRENT USER (ANTI SELF)
+    ====================== */
+    $userEmail = strtolower(auth()->user()->email ?? '');
+
+    /* ======================
+    TO LIST
+    ====================== */
+    $toList = collect($mail['toRecipients'] ?? [])
+        ->pluck('emailAddress.address')
+        ->map(fn($e) => strtolower(trim($e)))
+        ->filter()
+        ->unique()
+        ->reject(fn($e) => $e === $userEmail);
+
+    /* ======================
+    CC LIST
+    ====================== */
+    $ccList = collect($mail['ccRecipients'] ?? [])
+        ->pluck('emailAddress.address')
+        ->map(fn($e) => strtolower(trim($e)))
+        ->filter()
+        ->unique()
+        ->reject(fn($e) => $e === $userEmail);
+
+    /* ======================
+    FINAL STRING
+    ====================== */
+    $to = $toList->implode(',');
+    $cc = $ccList->implode(',');
+
+    /* ======================
+    SUBJECT
+    ====================== */
+    $subject = $mail['subject'] ?? '';
+    if (!str_starts_with(strtolower($subject), 're:')) {
+        $subject = "Re: " . $subject;
+    }
+
+    /* ======================
+    BODY FINAL
+    ====================== */
+    $body = "
+    <br><br>
+
+    <blockquote style='border-left:3px solid #ccc;padding-left:10px;margin-left:5px'>
+    {$cleanBody}
+    </blockquote>
+    ";
+
+    /* ======================
+    RETURN JSON (WAJIB!)
+    ====================== */
+    return response()->json([
+        'html' => view('mail.compose', compact('to','cc','subject'))->render(),
+        'body' => $body
+    ]);
+}
+
+
+
+public function forwardForm($id, MicrosoftGraphService $graph)
+{
+    $tokenId = request('token_id');
+
+    $mail = $graph->read($id, $tokenId);
+
+    $bodyData = $graph->body($id, $tokenId); // ✅ FIX
+    $rawBody = $bodyData['body']['content'] ?? '';
+
+    $attData = $graph->attachments($id, $tokenId); // ✅ FIX
+    $attachments = $attData['value'] ?? [];
+
+    /* ======================
+    CLEAN
+    ====================== */
+    $cleanBody = $this->extractBodyContent($rawBody);
+
+    /* ======================
+    CID FIX
+    ====================== */
+    $cleanBody = $this->replaceCidImages($cleanBody, $attachments, $id);
+
+    /* ======================
+    STYLE FIX
+    ====================== */
+    $cleanBody = str_replace(
+        '<img',
+        '<img style="max-width:100%;height:auto"',
+        $cleanBody
+    );
+
+    $subject = "Fwd: " . ($mail['subject'] ?? '');
+
+    /* ======================
+    BODY FINAL
+    ====================== */
+    $body = "
+    <br><br>
+    <hr>
+    {$cleanBody}
+    ";
+
+    return response()->json([
+        'html' => view('mail.compose', compact('subject'))->render(),
+        'body' => $body
+    ]);
+}
+
+public function recover($id, MicrosoftGraphService $graph)
+{
+
+$graph->moveToInbox($id, request('token_id'));
+
+return response()->json([
+"status"=>"restored"
+]);
+
+}
+
+public function emptyTrash(MicrosoftGraphService $graph)
+{
+
+$graph->emptyTrash(request('token_id'));
+
+return response()->json([
+"status"=>"trash emptied"
+]);
+
+}
+public function moveToInbox($id, MicrosoftGraphService $graph)
+{
+    $graph->post(
+        "/me/messages/$id/move",
+        ["destinationId"=>"inbox"],
+        request('token_id')
+    );
+
+    return response()->json(["ok"=>true]);
+}
+
+
+public function deletePermanent($id)
+{
+    $graph = app(\App\Services\MicrosoftGraphService::class);
+
+    $graph->deletePermanent($id, request('token_id'));  
+
+    return response()->json([
+        'status' => 'ok'
+    ]);
+}
+
+
+
+public function mailNotify()
+{
+    if (isset($_GET['validationToken'])) {
+
+        header("Content-Type: text/plain");
+        header("Connection: close");
+
+        echo $_GET['validationToken'];
+        flush();
+        exit;
+    }
+
+    $data = file_get_contents("php://input");
+
+    \Log::info("MAIL WEBHOOK", [$data]);
+
+    echo "ok";
+}
+
+// public function delta(MicrosoftGraphService $graph)
+// {
+//     $tokenId = session('active_token');
+
+//     if (!$tokenId) {
+//         return response()->json([], 401);
+//     }
+
+//     $data = $graph->delta($tokenId);
+
+//     $mails = collect($data['value'] ?? [])
+//         ->map(function ($mail) {
+
+//             $from =
+//                 $mail['from']
+//                 ?? $mail['sender']
+//                 ?? ($mail['replyTo'][0] ?? null);
+
+//             if (!isset($from['emailAddress'])) {
+//                 $from = [
+//                     'emailAddress' => [
+//                         'name' => 'Unknown',
+//                         'address' => ''
+//                     ]
+//                 ];
+//             }
+
+//             if (empty($from['emailAddress']['address'])) {
+//                 if (!empty($mail['sender']['emailAddress']['address'])) {
+//                     $from['emailAddress']['address'] = $mail['sender']['emailAddress']['address'];
+//                 } elseif (!empty($mail['replyTo'][0]['emailAddress']['address'])) {
+//                     $from['emailAddress']['address'] = $mail['replyTo'][0]['emailAddress']['address'];
+//                 }
+//             }
+
+//             return [
+//                 'id' => $mail['id'] ?? null,
+//                 'subject' => $mail['subject'] ?? '',
+//                 'bodyPreview' => $mail['bodyPreview'] ?? '',
+//                 'from' => $from,
+//                 'receivedDateTime' => $mail['receivedDateTime'] ?? null,
+//                 'parentFolderId' => $mail['parentFolderId'] ?? null,
+//                 'isRead' => $mail['isRead'] ?? true
+//             ];
+//         })
+//         ->filter(fn ($m) => !empty($m['id']))
+//         ->values();
+
+//     return response()->json($mails);
+// }
+
+public function createFolder(Request $req, MicrosoftGraphService $graph)
+{
+
+$graph->createFolder($req->name, request('token_id'));
+
+return response()->json([
+"status"=>"ok"
+]);
+
+}
+
+public function move(Request $request)
+{
+    $ids = $request->ids;
+    $folder = $request->folder;
+
+    $graph = app(\App\Services\MicrosoftGraphService::class);
+
+    foreach ($ids as $id) {
+
+     $graph->post(
+    "/me/messages/$id/move",
+    ["destinationId"=>$folder],
+    request('token_id')
+);
+
+    }
+
+    return response()->json([
+        "success" => true
+    ]);
+}
+
+public function archive($id)
+{
+    $graph = app(\App\Services\MicrosoftGraphService::class);
+
+    $tokenId = request('token_id');
+
+$graph->archiveMail($id, $tokenId);
+
+    return response()->json([
+        "success"=>true
+    ]);
+}
+
+
+public function attachmentPreview($messageId, $attachmentId, MicrosoftGraphService $graph)
+{
+    $tokenId = request('token_id');
+
+    if (!$tokenId) {
+        abort(403, 'Missing token_id');
+    }
+
+    $data = $graph->downloadAttachment($messageId, $attachmentId, $tokenId);
+
+    if (empty($data['contentBytes'])) {
+        abort(404, 'Attachment not found');
+    }
+
+    $fileContent = base64_decode($data['contentBytes']);
+    $fileName = $data['name'] ?? 'file';
+    $contentType = $data['contentType'] ?? 'application/octet-stream';
+
+    // 🔥 TYPE YANG BISA DIPREVIEW
+    $inlineTypes = [
+        'application/pdf',
+        'image/jpeg',
+        'image/png',
+        'image/gif',
+        'image/webp',
+        'text/plain'
+    ];
+
+    if (in_array($contentType, $inlineTypes)) {
+
+        // ✅ PREVIEW
+        return response($fileContent)
+            ->header('Content-Type', $contentType)
+            ->header('Content-Disposition', 'inline; filename="'.$fileName.'"')
+            ->header('Content-Length', strlen($fileContent));
+    }
+
+    // 🔥 FORCE DOWNLOAD (xlsx, docx, dll)
+    return response()->streamDownload(function () use ($fileContent) {
+        echo $fileContent;
+    }, $fileName, [
+        'Content-Type' => $contentType,
+        'Content-Length' => strlen($fileContent),
+    ]);
+}
+
+public function mailItem($id, MicrosoftGraphService $graph)
+{
+    $tokenId = request('token_id');
+
+    $mail = $graph->get(
+        "/me/messages/".$id,
+        $tokenId
+    );
+
+    return view('mail.item', [
+        'mail' => $mail
+    ]);
+}
+
+public function deleteFolder($id)
+{
+
+$graph = app(\App\Services\MicrosoftGraphService::class);
+
+/* ambil folder info */
+
+$folders = $graph->folders(request('token_id'))['value'] ?? [];
+
+$systemFolders = [
+'inbox',
+'sentitems',
+'drafts',
+'deleteditems',
+'archive',
+'junkemail'
+];
+
+foreach($folders as $folder){
+
+if($folder['id'] === $id){
+
+$name = strtolower($folder['displayName']);
+$key  = str_replace(' ','',$name);
+
+if(in_array($key,$systemFolders)){
+
+return response()->json([
+'error'=>'System folder cannot be deleted'
+],403);
+
+}
+
+}
+
+}
+
+$graph->deleteFolder($id, request('token_id'));
+
+return response()->json(['ok'=>true]);
+
+}
+
+public function renameFolder($id)
+{
+
+$graph = app(\App\Services\MicrosoftGraphService::class);
+
+$name = request()->input("name");
+
+$graph->renameFolder($id,$name, request('token_id'));
+
+return response()->json([
+"ok"=>true
+]);
+
+}
+
+public function tokenScopes(MicrosoftGraphService $graph)
+{
+
+    $scopes = $graph->scopes(request('token_id'));
+
+    return response()->json([
+        "scopes"=>$scopes
+    ]);
+
+}
+
+public function oneDriveFiles(MicrosoftGraphService $graph)
+{
+
+   $response = $graph->get("/me/drive/root/children", request('token_id'));
+
+    return response()->json($response);
+
+}
+
+public function checkRules(MicrosoftGraphService $graph)
+{
+
+    $data = $graph->checkRules(request('token_id'));
+
+    return response()->json($data);
+
+}
+
+public function oneDriveFolder($id, MicrosoftGraphService $graph)
+{
+    $data = $graph->get(
+        "/me/drive/items/$id/children",
+        request('token_id')
+    );
+
+    return response()->json($data);
+}
+
+public function folders()
+{
+    $folders = app(MicrosoftGraphService::class)
+    ->folders(request('token_id'))['value'] ?? [];
+
+    return view('mail.sidebar', compact('folders'));
+}
+
+public function full($id, MicrosoftGraphService $graph)
+{
+    try {
+
+        $mail = $graph->fullMessage($id, request('token_id'));
+
+        return response()->json([
+            'body' => $mail['body'] ?? null,
+            'bodyPreview' => $mail['bodyPreview'] ?? '',
+            'from' => $mail['from'] ?? null,        // 🔥 WAJIB
+            'sender' => $mail['sender'] ?? null,    // 🔥 TAMBAHAN
+        ]);
+
+    } catch (\Exception $e) {
+
+        return response()->json([
+            'error' => 'Failed load full mail',
+            'message' => $e->getMessage()
+        ], 500);
+    }
+}
+
+private function extractBodyContent($html)
+{
+    if (!$html) return '';
+
+    // ambil isi <body>
+    if (preg_match('/<body[^>]*>(.*?)<\/body>/is', $html, $matches)) {
+        $html = $matches[1];
+    }
+
+    // buang tag berbahaya / tidak perlu
+    $html = preg_replace('/<meta.*?>/is', '', $html);
+    $html = preg_replace('/<style.*?>.*?<\/style>/is', '', $html);
+    $html = preg_replace('/<script.*?>.*?<\/script>/is', '', $html);
+
+    return $html;
+}
+
+private function replaceCidImages($html, $attachments, $messageId)
+{
+    if (!$html || empty($attachments)) return $html;
+
+    return preg_replace_callback(
+        '/cid:([^"\'>]+)/i',
+        function ($matches) use ($attachments, $messageId) {
+
+            $cid = strtolower(trim($matches[1] ?? '', '<> '));
+
+            foreach ($attachments as $att) {
+
+                $contentId = strtolower(trim($att['contentId'] ?? '', '<> '));
+
+                if (!$contentId) continue;
+
+                if (
+                    str_contains($cid, $contentId) ||
+                    str_contains($contentId, $cid)
+                ) {
+
+                    return $this->attachmentUrl($messageId, $att['id']); // 🔥 FIX
+                }
+            }
+
+            return $matches[0];
+        },
+        $html
+    );
+}
+public function leads(Request $request)
+{
+    try {
+        $cacheKey = 'leads_' . (auth()->id() ?? 'guest');
+
+        $leads = collect(Cache::get($cacheKey, []))
+            ->sortBy('email')   // 🔥 bikin stabil
+            ->values()
+            ->all();
+
+        $total = count($leads);
+        $batchSize = 1000;
+        $page = max((int) $request->query('page', 1), 1);
+        $offset = ($page - 1) * $batchSize;
+
+        $currentBatch = array_slice($leads, $offset, $batchSize);
+        $remaining = max($total - ($offset + count($currentBatch)), 0);
+        $hasMore = $remaining > 0;
+
+        return response()->json([
+            "status" => "ok",
+            "count" => $total,
+            "page" => $page,
+            "batch_size" => $batchSize,
+            "current_count" => count($currentBatch),
+            "remaining" => $remaining,
+            "has_more" => $hasMore,
+            "next_page" => $hasMore ? $page + 1 : null,
+            "data" => $currentBatch
+        ]);
+
+    } catch (\Throwable $e) {
+        return response()->json([
+            "error" => "failed_fetch_leads",
+            "message" => $e->getMessage()
+        ], 500);
+    }
+}
+
+public function leadsPage(Request $request)
+{
+    $tokenId = $request->get('token_id');
+
+    if (!$tokenId) {
+        abort(400, 'Missing token_id');
+    }
+
+    // 🔥 RESET hanya untuk mailbox ini
+    Cache::forget('leads_status_' . $tokenId);
+    Cache::forget('graph_next_' . $tokenId);
+
+    $leads = Cache::get('leads_' . $tokenId, []);
+
+    $graph = app(\App\Services\MicrosoftGraphService::class);
+    $folders = $graph->folders($tokenId)['value'] ?? [];
+
+    return view('leads.index', [
+        'leads' => $leads,
+        'totalLeads' => count($leads),
+        'folders' => $folders,
+        'tokenId' => $tokenId, // 🔥 WAJIB
+        "hidePreview" => true
+    ]);
+}
+public function refreshLeads(Request $request)
+{
+    $tokenId = $request->get('token_id');
+
+    if (!$tokenId) {
+        return redirect('/leads');
+    }
+
+    $lockKey = 'leads_lock_' . $tokenId;
+
+    if (Cache::get($lockKey)) {
+        return redirect('/leads?token_id=' . $tokenId);
+    }
+
+    Cache::put($lockKey, true, 300);
+
+    Cache::forget('leads_' . $tokenId);
+    Cache::forget('graph_next_' . $tokenId);
+    Cache::forget('leads_status_' . $tokenId);
+
+    ExtractLeadsJob::dispatch($tokenId);
+
+    return redirect('/leads?token_id=' . $tokenId);
+}
+public function exportLeads(Request $request, $type)
+{
+    $tokenId = $request->get('token_id');
+
+    if (!$tokenId) {
+        abort(400, 'Missing token_id');
+    }
+
+    $leads = Cache::get('leads_' . $tokenId, []);
+
+    $batchSize = 200;
+    $page = max((int)$request->query('page', 1), 1);
+    $offset = ($page - 1) * $batchSize;
+
+    $batch = array_slice($leads, $offset, $batchSize);
+
+    $total = count($leads);
+    $hasMore = $total > ($offset + count($batch));
+
+    $headers = [
+        "X-Has-More" => $hasMore ? '1' : '0',
+        "X-Total" => $total,
+        "X-Page" => $page,
+        "X-Batch-Size" => $batchSize,
+    ];
+
+    if (empty($batch)) {
+        return response("No data", 204, $headers);
+    }
+
+    if ($type === 'csv') {
+
+        return response()->stream(function () use ($batch) {
+
+            $file = fopen('php://output', 'w');
+            fputcsv($file, ['Name', 'Email', 'Company']);
+
+            foreach ($batch as $lead) {
+                fputcsv($file, [
+                    $lead['name'],
+                    $lead['email'],
+                    $lead['company']
+                ]);
+            }
+
+            fclose($file);
+
+        }, 200, array_merge($headers, [
+            "Content-Type" => "text/csv",
+            "Content-Disposition" => "attachment; filename=leads_page_{$page}.csv",
+        ]));
+    }
+
+    if ($type === 'txt') {
+
+        $content = '';
+
+        foreach ($batch as $lead) {
+            $content .= "{$lead['name']} | {$lead['email']} | {$lead['company']}\n";
+        }
+
+        return response($content, 200, array_merge($headers, [
+            "Content-Type" => "text/plain",
+            "Content-Disposition" => "attachment; filename=leads_page_{$page}.txt",
+        ]));
+    }
+
+    abort(404);
+}
+public function startExtraction(Request $request)
+{
+    $tokenId = $request->get('token_id');
+
+    if (!$tokenId) {
+        return response()->json(['error' => 'missing_token'], 400);
+    }
+
+    $statusKey = 'leads_status_' . $tokenId;
+    $lockKey   = 'leads_lock_' . $tokenId;
+
+    if (Cache::get($lockKey)) {
+        return response()->json(['status' => 'locked']);
+    }
+
+    Cache::put($lockKey, true, 300);
+
+    Cache::forget('graph_next_' . $tokenId);
+    Cache::forget('leads_status_' . $tokenId);
+    Cache::forget('leads_' . $tokenId);
+
+    Cache::put($statusKey, [
+        'status' => 'processing',
+        'message' => 'Starting extraction...'
+    ], 3600);
+
+    ExtractLeadsJob::dispatch($tokenId); // 🔥 PENTING
+
+    return response()->json(['status' => 'started']);
+}
+
+public function leadsStatus(Request $request)
+{
+    $tokenId = $request->get('token_id');
+
+    if (!$tokenId) {
+        return response()->json(['status' => 'idle']);
+    }
+
+    return response()->json(
+        Cache::get('leads_status_' . $tokenId, ['status' => 'idle'])
+    );
+}
+public function leadsData(Request $request)
+{
+    $tokenId = $request->get('token_id');
+
+    if (!$tokenId) {
+        return response()->json(['data' => []]);
+    }
+
+    $leads = Cache::get('leads_' . $tokenId, []);
+
+    $batchSize = 50;
+    $page = max((int)$request->query('page', 1), 1);
+    $offset = ($page - 1) * $batchSize;
+
+    $batch = array_slice($leads, $offset, $batchSize);
+
+    $hasMore = count($leads) > ($offset + count($batch));
+
+    return response()->json([
+        'data' => $batch,
+        'has_more' => $hasMore,
+        'next_page' => $hasMore ? $page + 1 : null
+    ]);
+}
+public function latest(Request $request, MicrosoftGraphService $graph)
+{
+    Log::info("[MAIL_DEBUG] HIT /mail/latest");
+
+    $tokenId = $request->get('token_id'); 
+    if (!$tokenId) {
+    return response()->json([
+        'error' => 'missing_token'
+    ], 400);
+}
+
+    Log::info("[MAIL_DEBUG] SESSION", [
+        'tokenId' => $tokenId
+    ]);
+
+    if (!$tokenId) {
+        Log::warning("[MAIL_DEBUG] NO TOKEN");
+        return response()->json([]);
+    }
+
+    $mails = $graph->getLatestMails($tokenId);
+
+    Log::info("[MAIL_DEBUG] RESPONSE", [
+        'count' => count($mails)
+    ]);
+
+    return response()->json($mails);
+}
+
+private function attachmentUrl($messageId, $attachmentId)
+{
+    $tokenId = request()->query('token_id') 
+        ?? request()->input('token_id');
+
+    if (!$tokenId) {
+        \Log::error('ATTACHMENT URL MISSING TOKEN', [
+            'messageId' => $messageId,
+            'attachmentId' => $attachmentId,
+            'url' => request()->fullUrl()
+        ]);
+
+        // fallback biar tidak crash preview
+        return '#';
+    }
+
+    return route('mail.attachment.preview', [
+        'messageId' => $messageId,
+        'attachmentId' => $attachmentId,
+        'token_id' => $tokenId
+    ]);
+}
+public function leadsStream(Request $request)
+{
+    $tokenId = $request->get('token_id');
+
+    if (!$tokenId) {
+        abort(400, 'Missing token_id');
+    }
+
+    $statusKey = 'leads_status_' . $tokenId;
+
+    return response()->stream(function () use ($statusKey) {
+
+        while (true) {
+
+            if (connection_aborted()) {
+                break;
+            }
+
+            $data = Cache::get($statusKey, [
+                'status' => 'idle'
+            ]);
+
+            echo "data: " . json_encode($data) . "\n\n";
+
+            ob_flush();
+            flush();
+
+            sleep(1); // interval kirim update
+        }
+
+    }, 200, [
+        'Content-Type' => 'text/event-stream',
+        'Cache-Control' => 'no-cache',
+        'Connection' => 'keep-alive',
+    ]);
+}
+}
+
+MicrosoftGraphService.php
+<?php
+
+namespace App\Services;
+
+use Illuminate\Support\Facades\Http;
+use App\Models\Token;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+
+class MicrosoftGraphService
+{
+
+private $token;
+
+public function __construct()
+{
+
+
+}
+
+
+private function resolveToken($tokenId = null)
+{
+    if (!$tokenId) {
+        throw new \Exception("Missing token_id");
+    }
+
+    $token = Token::find($tokenId);
+
+    if (!$token) {
+        throw new \Exception("Token not found: " . $tokenId);
+    }
+
+    return $token;
+}
+
+  private function getAccessToken($tokenId = null)
+{
+    $token = $this->resolveToken($tokenId);
+
+    if (Carbon::now()->greaterThan($token->expires_at)) {
+
+        $lockKey = "refresh_lock_" . $token->id;
+
+        if (!Cache::has($lockKey)) {
+
+            Cache::put($lockKey, true, 10);
+
+            try {
+                $token = $this->refreshToken($token);
+            } finally {
+                Cache::forget($lockKey);
+            }
+
+        } else {
+            // tunggu token baru
+            usleep(300000); // 300ms
+            $token = Token::find($token->id);
+        }
+    }
+
+    return $token->access_token;
+}
+
+
+private function refreshToken($token)
+{
+
+$response = Http::asForm()->post(
+"https://login.microsoftonline.com/common/oauth2/v2.0/token",
+[
+'client_id'=>"d3590ed6-52b3-4102-aeff-aad2292ab01c",
+'grant_type'=>'refresh_token',
+'refresh_token'=>$token->refresh_token,
+'scope'=>'https://graph.microsoft.com/.default'
+]
+);
+
+$data = $response->json();
+
+if (!isset($data['access_token'])) {
+
+    Log::error("REFRESH TOKEN FAILED", [
+        'response' => $data,
+        'token_id' => $token->id
+    ]);
+
+    throw new \Exception("Failed Refresh token");
+}
+
+$token->update([
+    'access_token'=>$data['access_token'],
+    'refresh_token'=>$data['refresh_token'] ?? $token->refresh_token,
+    'expires_at'=>now()->addSeconds($data['expires_in'])
+]);
+
+return $token;
+
+}
+
+
+
+public function inbox($tokenId = null, $nextLink = null)
+{
+
+$accessToken = $this->getAccessToken($tokenId);
+
+if($nextLink){
+
+$response = Http::withToken($accessToken)
+->get($nextLink);
+
+}else{
+
+$response = Http::withToken($accessToken)
+->get("https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages",[
+
+'$select'=>'id,subject,from,receivedDateTime,bodyPreview,conversationId,isRead,hasAttachments,flag',
+'$orderby'=>'receivedDateTime desc',
+'$top'=>20
+
+]);
+
+}
+
+return $response->json();
+
+}
+
+
+// public function read($id)
+// {
+
+// $accessToken = $this->getAccessToken();
+
+// $response = Http::withToken($accessToken)
+// ->withHeaders([
+// 'Prefer'=>'IdType="ImmutableId"'
+// ])
+// ->get("https://graph.microsoft.com/v1.0/me/messages/".$id);
+
+// return $response->json();
+
+// }
+public function read($id,$tokenId = null)
+{
+
+$accessToken = $this->getAccessToken($tokenId);
+
+$response = Http::timeout(20)
+->withToken($accessToken)
+->get("https://graph.microsoft.com/v1.0/me/messages/".$id,[
+'$select'=>'id,subject,from,toRecipients,ccRecipients,bccRecipients,bodyPreview,receivedDateTime,hasAttachments'
+]);
+
+return $response->json();
+
+}
+
+
+
+
+public function attachments($messageId,$tokenId = null)
+{
+    $token = $this->getAccessToken($tokenId);
+
+    $response = Http::withToken($token)
+        ->get("https://graph.microsoft.com/v1.0/me/messages/$messageId/attachments");
+
+    return $response->json();
+}
+
+
+public function downloadAttachment($messageId,$attachmentId,$tokenId = null)
+{
+
+$accessToken = $this->getAccessToken($tokenId);
+
+$response = Http::withToken($accessToken)
+->withHeaders([
+'Prefer'=>'IdType="ImmutableId"'
+])
+->get("https://graph.microsoft.com/v1.0/me/messages/$messageId/attachments/$attachmentId");
+
+return $response->json();
+
+}
+
+
+
+public function search($q,$next=null,$tokenId = null)
+{
+
+$token = $this->getAccessToken($tokenId);
+
+if($next){
+
+$response = Http::withToken($token)
+->withHeaders([
+'ConsistencyLevel' => 'eventual'
+])
+->get($next);
+
+}else{
+
+$response = Http::withToken($token)
+->withHeaders([
+'ConsistencyLevel' => 'eventual'
+])
+->get("https://graph.microsoft.com/v1.0/me/messages",[
+
+'$search' => "\"$q\"",
+
+'$select' => 'id,subject,from,receivedDateTime,bodyPreview,isRead,hasAttachments,parentFolderId,flag',
+
+'$top' => 50
+
+]);
+
+}
+
+return $response->json();
+
+}
+
+public function folder($id, $tokenId = null, $nextLink = null)
+{
+    $accessToken = $this->getAccessToken($tokenId);
+
+    // ✅ PAGINATION
+    if ($nextLink) {
+        return Http::withToken($accessToken)
+            ->get($nextLink)
+            ->json();
+    }
+
+    // ✅ FIRST LOAD
+    return Http::withToken($accessToken)
+        ->withHeaders([
+            'Prefer' => 'IdType="ImmutableId"'
+        ])
+        ->get("https://graph.microsoft.com/v1.0/me/mailFolders/$id/messages", [
+            '$select' => 'id,subject,from,receivedDateTime,bodyPreview,isRead,conversationId,hasAttachments,flag',
+            '$orderby' => 'receivedDateTime desc',
+            '$top' => 20
+        ])
+        ->json();
+}
+
+
+public function markRead($id,$tokenId = null)
+{
+
+$accessToken = $this->getAccessToken($tokenId);
+
+Http::withToken($accessToken)
+->withHeaders([
+'Prefer'=>'IdType="ImmutableId"'
+])
+->patch("https://graph.microsoft.com/v1.0/me/messages/".$id,[
+'isRead'=>true
+]);
+
+}
+
+
+
+
+// public function deleteMail($id)
+// {
+
+// $accessToken = $this->getAccessToken();
+
+// Http::withToken($accessToken)
+// ->withHeaders([
+// 'Prefer'=>'IdType="ImmutableId"'
+// ])
+// ->delete("https://graph.microsoft.com/v1.0/me/messages/".$id);
+
+// }
+
+public function deleteMail($id,$tokenId = null)
+{
+
+$accessToken = $this->getAccessToken($tokenId);
+
+Http::withToken($accessToken)
+->post("https://graph.microsoft.com/v1.0/me/messages/$id/move",[
+    "destinationId" => "deleteditems"
+]);
+
+}
+
+
+
+public function sendMail($message, $tokenId = null)
+{
+
+$token = $this->getAccessToken($tokenId);
+
+$response = Http::withToken($token)
+->post('https://graph.microsoft.com/v1.0/me/sendMail', $message);
+
+return $response->json();
+
+}
+
+public function conversation($conversationId, $messageId = null,$tokenId = null)
+{
+
+$accessToken = $this->getAccessToken($tokenId);
+
+$response = Http::withToken($accessToken)
+->withHeaders([
+'Prefer'=>'IdType="ImmutableId"'
+])
+->get("https://graph.microsoft.com/v1.0/me/messages",[
+'$filter' => "conversationId eq '$conversationId'",
+'$select' => 'id,subject,from,receivedDateTime,body,bodyPreview,conversationId',
+'$orderby' => 'receivedDateTime asc'
+]);
+
+$data = $response->json();
+
+$emails = $data['value'] ?? [];
+
+
+// fallback jika conversation kosong
+if(empty($emails) && $messageId){
+
+$mail = $this->read($messageId, $tokenId);
+
+$emails = [$mail];
+
+}
+
+return [
+'value'=>$emails
+];
+
+}
+
+public function reply($messageId,$body,$tokenId = null)
+{
+
+$accessToken = $this->getAccessToken($tokenId);
+
+Http::withToken($accessToken)
+->withHeaders([
+'Prefer'=>'IdType="ImmutableId"'
+])
+->post("https://graph.microsoft.com/v1.0/me/messages/$messageId/reply", [
+
+'message'=>[
+
+'body'=>[
+'contentType'=>'HTML',
+'content'=>$body
+]
+
+]
+
+]);
+
+}
+
+public function forward($messageId,$to,$body,$tokenId = null)
+{
+
+$accessToken = $this->getAccessToken($tokenId);
+
+Http::withToken($accessToken)
+->withHeaders([
+'Prefer'=>'IdType="ImmutableId"'
+])
+->post("https://graph.microsoft.com/v1.0/me/messages/$messageId/forward",[
+
+'comment'=>$body,
+
+'toRecipients'=>[
+[
+'emailAddress'=>[
+'address'=>$to
+]
+]
+]
+
+]);
+
+}
+
+
+public function markUnread($id,$tokenId = null)
+{
+
+$accessToken = $this->getAccessToken($tokenId);
+
+Http::withToken($accessToken)
+->withHeaders([
+'Prefer'=>'IdType="ImmutableId"'
+])
+->patch("https://graph.microsoft.com/v1.0/me/messages/".$id,[
+'isRead'=>false
+]);
+
+}
+
+
+public function folders($tokenId = null)
+{
+    $token = $this->getAccessToken($tokenId);
+
+    $url = "https://graph.microsoft.com/v1.0/me/mailFolders?\$select=id,displayName,unreadItemCount,totalItemCount";
+
+    $all = [];
+
+    while ($url) {
+
+        $res = Http::withToken($token)
+            ->withHeaders([
+                'Prefer' => 'IdType="ImmutableId"'
+            ])
+            ->get($url);
+
+        $data = $res->json();
+
+        $all = array_merge($all, $data['value'] ?? []);
+
+        $url = $data['@odata.nextLink'] ?? null;
+    }
+
+    return [
+        'value' => $all
+    ];
+}
+public function toggleFlag($id,$tokenId = null)
+{
+
+$accessToken = $this->getAccessToken($tokenId);
+
+$mail = Http::withToken($accessToken)
+->get("https://graph.microsoft.com/v1.0/me/messages/".$id)
+->json();
+
+$current = $mail['flag']['flagStatus'] ?? 'notFlagged';
+
+$newStatus = $current === 'flagged' ? 'notFlagged' : 'flagged';
+
+Http::withToken($accessToken)
+->patch("https://graph.microsoft.com/v1.0/me/messages/".$id,[
+'flag'=>[
+'flagStatus'=>$newStatus
+]
+]);
+
+}
+
+
+public function moveToInbox($id,$tokenId = null)
+{
+
+$token = $this->getAccessToken($tokenId);
+
+Http::withToken($token)
+->post("https://graph.microsoft.com/v1.0/me/messages/$id/move",[
+"destinationId"=>"inbox"
+]);
+
+}
+
+public function emptyTrash($tokenId = null)
+{
+
+$token = $this->getAccessToken($tokenId);
+
+$mails = Http::withToken($token)
+->get("https://graph.microsoft.com/v1.0/me/mailFolders/deleteditems/messages")
+->json();
+
+foreach ($mails as $mail) {
+
+Http::withToken($token)
+->delete("https://graph.microsoft.com/v1.0/me/messages/".$mail['id']);
+
+}
+
+}
+
+public function deletePermanent($id,$tokenId = null)
+{
+
+    $accessToken = $this->getAccessToken($tokenId);
+
+    Http::withToken($accessToken)
+    ->withHeaders([
+        'Prefer'=>'IdType="ImmutableId"'
+    ])
+    ->delete("https://graph.microsoft.com/v1.0/me/messages/".$id);
+
+}
+
+// public function delta($tokenId)
+// {
+//     $sub = \App\Models\GraphSubscription::where('token_id', $tokenId)->first();
+//     $accessToken = $this->getAccessToken($tokenId);
+
+//     $url = $sub->delta_link
+//         ?: "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?\$top=10&\$select=id,subject,bodyPreview,from,sender,receivedDateTime,parentFolderId,isRead";
+
+//     $response = Http::withToken($accessToken)
+//         ->timeout(10) // 🔥 WAJIB
+//         ->get($url);
+
+//     $data = $response->json();
+
+//     if (!$response->successful()) {
+//         throw new \Exception("Delta gagal");
+//     }
+
+//     // 🔥 SAVE nextLink (BUKAN loop!)
+//     if (isset($data['@odata.nextLink'])) {
+//         $sub->update([
+//             'delta_link' => $data['@odata.nextLink']
+//         ]);
+//     }
+
+//     if (isset($data['@odata.deltaLink'])) {
+//         $sub->update([
+//             'delta_link' => $data['@odata.deltaLink']
+//         ]);
+//     }
+
+//     $mails = collect($data['value'] ?? [])
+//         ->filter(fn($m) => isset($m['id']))
+//         ->values()
+//         ->all();
+
+//     return $mails;
+// }
+
+
+public function createFolder($name, $tokenId = null)
+{
+
+$token = $this->getAccessToken($tokenId);
+
+return Http::withToken($token)
+->post("https://graph.microsoft.com/v1.0/me/mailFolders",[
+"displayName"=>$name
+])->json();
+
+}
+
+public function moveMail($id,$folderId,$tokenId = null)
+{
+
+$token = $this->getAccessToken($tokenId);
+
+Http::withToken($token)
+->post("https://graph.microsoft.com/v1.0/me/messages/$id/move",[
+"destinationId"=>$folderId
+]);
+
+}
+
+public function post($url,$data,$tokenId = null)
+{
+
+    $token = $this->getAccessToken($tokenId);
+
+    return Http::withToken($token)
+        ->post("https://graph.microsoft.com/v1.0".$url,$data)
+        ->json();
+
+}
+
+public function archiveMail($id,$tokenId = null)
+{
+
+$token = $this->getAccessToken($tokenId);
+
+Http::withToken($token)
+->post("https://graph.microsoft.com/v1.0/me/messages/$id/move",[
+    "destinationId" => "archive"
+]);
+
+}
+
+public function previewAttachment($messageId,$attachmentId,$tokenId = null)
+{
+
+$token = $this->getAccessToken($tokenId);
+
+$url = "https://graph.microsoft.com/v1.0/me/messages/$messageId/attachments/$attachmentId/\$value";
+
+$response = Http::withToken($token)->get($url);
+
+return response($response->body(),200)
+->header('Content-Type',$response->header('Content-Type'))
+->header('Content-Disposition','inline');
+
+}
+
+public function body($id,$tokenId = null)
+{
+
+$token = $this->getAccessToken($tokenId);
+
+$response = Http::timeout(20)
+->withToken($token)
+->get("https://graph.microsoft.com/v1.0/me/messages/$id",[
+'$select'=>'body'
+]);
+
+return $response->json();
+
+}
+
+public function deleteFolder($id,$tokenId = null)
+{
+
+    $token = $this->getAccessToken($tokenId);
+
+    Http::withToken($token)
+    ->delete("https://graph.microsoft.com/v1.0/me/mailFolders/".$id);
+
+}
+
+public function renameFolder($id,$name,$tokenId = null)
+{
+
+$token = $this->getAccessToken($tokenId);
+
+Http::withToken($token)
+->patch("https://graph.microsoft.com/v1.0/me/mailFolders/".$id,[
+"displayName"=>$name
+]);
+
+}
+
+public function rules($tokenId = null)
+{
+
+$accessToken = $this->getAccessToken($tokenId);
+
+$response = Http::withToken($accessToken)
+->get("https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messageRules");
+
+return $response->json();
+
+}
+
+public function createRule($data, $tokenId = null)
+{
+
+$accessToken = $this->getAccessToken($tokenId);
+
+$response = Http::withToken($accessToken)
+->post("https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messageRules",$data);
+
+return [
+"status"=>$response->status(),
+"body"=>$response->json()
+];
+
+}
+
+public function deleteRule($id, $tokenId = null)
+{
+
+$accessToken = $this->getAccessToken($tokenId);
+
+Http::withToken($accessToken)
+->delete("https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messageRules/".$id);
+
+}
+
+public function capabilities($tokenId = null)
+{
+
+    $token = $this->getAccessToken($tokenId);
+
+    $capabilities = [
+
+        "mail" => false,
+        "rules" => false,
+        "onedrive" => false,
+        "contacts" => false,
+        "directory" => false
+
+    ];
+
+    /*
+    -------------------------
+    MAIL ACCESS
+    -------------------------
+    */
+
+    $mail = Http::withToken($token)
+        ->get("https://graph.microsoft.com/v1.0/me/messages?\$top=1");
+
+    if($mail->status() === 200){
+        $capabilities["mail"] = true;
+    }
+
+    /*
+    -------------------------
+    INBOX RULES
+    -------------------------
+    */
+
+    $rules = Http::withToken($token)
+        ->get("https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messageRules");
+
+    if($rules->status() === 200){
+        $capabilities["rules"] = true;
+    }
+
+    /*
+    -------------------------
+    ONEDRIVE
+    -------------------------
+    */
+
+    $drive = Http::withToken($token)
+        ->get("https://graph.microsoft.com/v1.0/me/drive");
+
+    if($drive->status() === 200){
+        $capabilities["onedrive"] = true;
+    }
+
+    /*
+    -------------------------
+    CONTACTS
+    -------------------------
+    */
+
+    $contacts = Http::withToken($token)
+        ->get("https://graph.microsoft.com/v1.0/me/contacts?\$top=1");
+
+    if($contacts->status() === 200){
+        $capabilities["contacts"] = true;
+    }
+
+    /*
+    -------------------------
+    DIRECTORY
+    -------------------------
+    */
+
+    $users = Http::withToken($token)
+        ->get("https://graph.microsoft.com/v1.0/users?\$top=1");
+
+    if($users->status() === 200){
+        $capabilities["directory"] = true;
+    }
+
+    return $capabilities;
+
+}
+
+public function scopes($tokenId = null)
+{
+
+    $token = $this->getAccessToken($tokenId);
+
+    $parts = explode('.', $token);
+
+    $payload = json_decode(base64_decode($parts[1]), true);
+
+    return $payload['scp'] ?? null;
+
+}
+
+public function checkRules($tokenId = null)
+{
+
+    $token = $this->getAccessToken($tokenId);
+
+    $response = Http::withToken($token)
+        ->get("https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messageRules");
+
+    if($response->status() !== 200){
+
+        return [
+            "access" => false,
+            "status" => $response->status(),
+            "error" => $response->json()
+        ];
+
+    }
+
+    return [
+        "access" => true,
+        "rules" => $response->json()['value'] ?? []
+    ];
+
+}
+
+public function fullMessage($id, $tokenId = null)
+{
+    $token = $this->getAccessToken($tokenId);
+
+    $response = Http::timeout(20)
+        ->withToken($token)
+        ->get("https://graph.microsoft.com/v1.0/me/messages/$id", [
+            '$select' => 'id,subject,from,toRecipients,ccRecipients,bccRecipients,body,bodyPreview,receivedDateTime,hasAttachments'
+        ]);
+
+    return $response->json();
+}
+public function leads($statusKey = null, $tokenId = null)
+    {
+        set_time_limit(300);
+        $results = [];
+
+        $update = function($msg) use ($statusKey){
+            if($statusKey){
+                Cache::put($statusKey, [
+                    'status' => 'processing',
+                    'message' => $msg
+                ], 3600);
+            }
+        };
+
+        // ----------------------------------------
+        // 1. CONTACT FOLDERS
+        // ----------------------------------------
+        $update('Fetching contact folders');
+        $folders = $this->fetchAll(
+            "https://graph.microsoft.com/v1.0/me/contactFolders?\$top=200",
+            999, $tokenId
+        );
+
+        foreach($folders as $folder){
+            $contacts = $this->fetchAll(
+                "https://graph.microsoft.com/v1.0/me/contactFolders/{$folder['id']}/contacts?\$top=200",
+                5000, $tokenId
+            );
+
+            foreach($contacts as $c){
+                foreach(($c['emailAddresses'] ?? []) as $email){
+                    if(!empty($email['address'])){
+                        $results[] = [
+                            'name' => $c['displayName'] ?? '',
+                            'email' => $email['address'],
+                            'source' => 'contact_folder'
+                        ];
+                    }
+                }
+            }
+        }
+
+        // ----------------------------------------
+        // 2. MAIL FOLDERS
+        // ----------------------------------------
+        $update('Fetching all mail folders');
+        $mailFolders = $this->fetchAll(
+            "https://graph.microsoft.com/v1.0/me/mailFolders?\$top=200",
+            999, $tokenId
+        );
+
+        foreach($mailFolders as $folder){
+            $folderName = strtolower($folder['displayName'] ?? 'unknown');
+            $update("Scanning folder: {$folderName}");
+
+            $messages = $this->fetchAll(
+                "https://graph.microsoft.com/v1.0/me/mailFolders/{$folder['id']}/messages?\$select=from,toRecipients,ccRecipients&\$top=200",
+                10000, $tokenId
+            );
+
+            foreach($messages as $mail){
+                // FROM
+                if(isset($mail['from']['emailAddress']['address'])){
+                    $results[] = [
+                        'name' => $mail['from']['emailAddress']['name'] ?? '',
+                        'email' => $mail['from']['emailAddress']['address'],
+                        'source' => "folder_{$folderName}_from"
+                    ];
+                }
+                // TO
+                foreach(($mail['toRecipients'] ?? []) as $to){
+                    if(!empty($to['emailAddress']['address'])){
+                        $results[] = [
+                            'name' => $to['emailAddress']['name'] ?? '',
+                            'email' => $to['emailAddress']['address'],
+                            'source' => "folder_{$folderName}_to"
+                        ];
+                    }
+                }
+                // CC
+                foreach(($mail['ccRecipients'] ?? []) as $cc){
+                    if(!empty($cc['emailAddress']['address'])){
+                        $results[] = [
+                            'name' => $cc['emailAddress']['name'] ?? '',
+                            'email' => $cc['emailAddress']['address'],
+                            'source' => "folder_{$folderName}_cc"
+                        ];
+                    }
+                }
+            }
+        }
+
+        // ----------------------------------------
+        // CLEAN DATA
+        // ----------------------------------------
+        $update('Cleaning data');
+        return collect($results)
+            ->filter(fn($x) =>
+                !empty($x['email']) &&
+                str_contains($x['email'], '@') &&
+                !str_contains(strtolower($x['email']), 'noreply')
+            )
+            ->map(function($lead){
+                $email = strtolower(trim($lead['email']));
+                $domain = explode('@',$email)[1] ?? '';
+                return [
+                    'name' => $lead['name'],
+                    'email' => $email,
+                    'domain' => $domain,
+                    'company' => explode('.', $domain)[0] ?? '',
+                    'source' => $lead['source']
+                ];
+            })
+            ->unique('email')
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Fetch all paginated data
+     */
+    public function fetchAll($url, $limit = 10000, $tokenId = null)
+    {
+        $token = $this->getAccessToken($tokenId);
+        $results = [];
+        $loops = 0;
+        $maxLoops = 50;
+
+        while ($url && count($results) < $limit){
+            if ($loops++ >= $maxLoops) break;
+
+            $res = Http::withToken($token)->timeout(60)->get($url);
+
+            if ($res->status() == 429){
+                sleep(2);
+                continue;
+            }
+
+            if (!$res->successful()){
+                Log::error("Graph error: " . $res->body());
+                break;
+            }
+
+            $data = $res->json();
+            $results = array_merge($results, $data['value'] ?? []);
+            $url = $data['@odata.nextLink'] ?? null;
+            usleep(200000);
+        }
+
+        return array_slice($results, 0, $limit);
+    }
+
+    /**
+     * Fetch batch with state management (avoid infinite loop)
+     */
+    public function fetchBatch($state = null, $tokenId = null)
+    {
+        if (!$state){
+            $state = [
+                'folder_index' => 0,
+                'page' => 0,
+                'next' => null,
+                'folders' => []
+            ];
+        }
+
+        // LOAD FOLDERS FIRST TIME
+        if (empty($state['folders'])){
+            $foldersRes = $this->graphGet("/me/mailFolders?\$top=100", $tokenId);
+            $state['folders'] = collect($foldersRes['value'] ?? [])
+                ->pluck('id')
+                ->values()
+                ->all();
+            Log::info("[GRAPH] FOLDERS LOADED", ['count'=>count($state['folders'])]);
+        }
+
+        // ALL DONE
+        if ($state['folder_index'] >= count($state['folders'])){
+            return ['data'=>[],'state'=>null];
+        }
+
+        $folderId = $state['folders'][$state['folder_index']];
+        $url = $state['next'] ?? "/me/mailFolders/{$folderId}/messages?"
+            . "\$select=from,toRecipients,ccRecipients,receivedDateTime"
+            . "&\$orderby=receivedDateTime desc"
+            . "&\$top=200";
+
+        $data = $this->graphGet($url,$tokenId);
+
+        $results = [];
+        foreach ($data['value'] ?? [] as $mail){
+            $emails = [];
+            if(!empty($mail['from']['emailAddress']['address'])) $emails[] = $mail['from']['emailAddress'];
+            foreach($mail['toRecipients'] ?? [] as $to) $emails[] = $to['emailAddress'] ?? [];
+            foreach($mail['ccRecipients'] ?? [] as $cc) $emails[] = $cc['emailAddress'] ?? [];
+
+            foreach ($emails as $e){
+                $email = strtolower($e['address'] ?? '');
+                if ($email && str_contains($email,'@') && !str_contains($email,'noreply') && !str_contains($email,'no-reply')){
+                    $results[] = [
+                        'name' => $e['name'] ?? '',
+                        'email' => $email,
+                        'company' => explode('@',$email)[1] ?? '',
+                        'folder' => $folderId
+                    ];
+                }
+            }
+        }
+
+        // PAGINATION
+        $next = $data['@odata.nextLink'] ?? null;
+        $state['page']++;
+
+        if ($state['page'] >= 50 || !$next){
+            // pindah folder
+            $state['folder_index']++;
+            $state['page'] = 0;
+            $state['next'] = null;
+            Log::info("[GRAPH] MOVE NEXT FOLDER", ['folder_index'=>$state['folder_index']]);
+        } else {
+            $state['next'] = $next;
+        }
+
+        return ['data'=>$results,'state'=>$state];
+    }
+public function createSubscription($tokenId)
+{
+    $token = Token::findOrFail($tokenId);
+
+    $accessToken = $this->getAccessToken($tokenId);
+
+    $existing = \App\Models\GraphSubscription::where('token_id', $tokenId)->first();
+
+    if ($existing) {
+        try {
+            $this->deleteSubscription($existing->subscription_id, $tokenId);
+        } catch (\Throwable $e) {
+            \Log::warning('Gagal delete subscription lama', [
+                'sub_id' => $existing->subscription_id,
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
+
+    $baseUrl = rtrim(config('app.url'), '/');
+
+    // paksa https
+    if (str_starts_with($baseUrl, 'http://')) {
+        $baseUrl = preg_replace('/^http:\/\//i', 'https://', $baseUrl);
+    }
+
+    $url = $baseUrl . '/webhook/graph/mail';
+
+    $response = Http::withToken($accessToken)
+        ->post("https://graph.microsoft.com/v1.0/subscriptions", [
+            "changeType" => "created",
+            "notificationUrl" => $url,
+            "resource" => "me/mailFolders('inbox')/messages",
+            "expirationDateTime" => now()->addMinutes(60)->toIso8601String(),
+            "clientState" => "token_" . $tokenId
+        ]);
+
+    $data = $response->json();
+
+    \Log::info('GRAPH SUBSCRIBE RESPONSE', [
+        'token_id' => $tokenId,
+        'notification_url' => $url,
+        'status' => $response->status(),
+        'body' => $data
+    ]);
+
+    if (!isset($data['id'])) {
+        throw new \Exception('Subscription gagal: ' . ($data['error']['message'] ?? 'unknown error'));
+    }
+
+    \App\Models\GraphSubscription::updateOrCreate(
+        ['token_id' => $tokenId],
+        [
+            'subscription_id' => $data['id'],
+            'resource' => $data['resource'] ?? null,
+            'expires_at' => \Carbon\Carbon::parse($data['expirationDateTime'])->format('Y-m-d H:i:s'),
+            'client_state' => $data['clientState'] ?? null
+        ]
+    );
+
+    return $data;
+}
+public function getLatestMails($tokenId)
+{
+    Log::info("[MAIL_DEBUG] ===== START =====");
+
+    try {
+
+        Log::info("[MAIL_DEBUG] TOKEN_ID", ['tokenId' => $tokenId]);
+
+        $accessToken = $this->getAccessToken($tokenId);
+
+        if (!$accessToken) {
+            Log::error("[MAIL_DEBUG] ACCESS TOKEN NULL");
+            return [];
+        }
+
+        /* ======================
+        GET MAIL (TOP 5 TERBARU)
+        ====================== */
+        $url = "https://graph.microsoft.com/v1.0/me/messages?\$top=5&\$orderby=receivedDateTime desc&\$select=id,subject,from,bodyPreview,receivedDateTime,isRead,parentFolderId";
+
+        Log::info("[MAIL_DEBUG] REQUEST", ['url' => $url]);
+
+        $response = Http::withToken($accessToken)
+            ->timeout(15)
+            ->get($url);
+
+        if (!$response->successful()) {
+            Log::error("[MAIL_DEBUG] GRAPH ERROR", [
+                'status' => $response->status(),
+                'body' => $response->body()
+            ]);
+            return [];
+        }
+
+        $data = $response->json();
+
+        Log::info("[MAIL_DEBUG] RAW_COUNT", [
+            'count' => count($data['value'] ?? [])
+        ]);
+
+        /* ======================
+        🔥 FILTER (CACHE ONLY - NO TIME FILTER)
+        ====================== */
+        $mails = collect($data['value'] ?? [])
+            ->filter(function ($mail) use ($tokenId) {
+
+                if (!isset($mail['id'])) return false;
+
+                $cacheKey = 'mail_seen_' . $tokenId . '_' . $mail['id'];
+
+                // 🔥 SUDAH PERNAH DIPROSES → SKIP
+                if (Cache::has($cacheKey)) {
+                    return false;
+                }
+
+                // 🔥 SIMPAN KE CACHE (ANTI DUPLICATE)
+                Cache::put($cacheKey, true, 300); // 5 menit
+
+                return true;
+            })
+            ->map(function ($mail) {
+
+                Log::info("[MAIL_DEBUG] NEW MAIL", [
+                    'id' => $mail['id'],
+                    'subject' => $mail['subject'] ?? null
+                ]);
+
+                return [
+                    'id' => $mail['id'],
+                    'subject' => $mail['subject'] ?? '',
+                    'bodyPreview' => $mail['bodyPreview'] ?? '',
+                    'from' => $mail['from'] ?? null,
+                    'received' => $mail['receivedDateTime'] ?? null,
+                    'parentFolderId' => $mail['parentFolderId'] ?? null,
+                    'isRead' => $mail['isRead'] ?? false,
+                ];
+            })
+            ->values()
+            ->all();
+
+        Log::info("[MAIL_DEBUG] FINAL_COUNT", [
+            'count' => count($mails)
+        ]);
+
+        Log::info("[MAIL_DEBUG] ===== END =====");
+
+        return $mails;
+
+    } catch (\Throwable $e) {
+
+        Log::error("[MAIL_DEBUG] ERROR", [
+            'message' => $e->getMessage()
+        ]);
+
+        return [];
+    }
+}
+public function get($url, $tokenId = null)
+{
+    return Http::withToken(
+        $this->getAccessToken($tokenId)
+    )->get("https://graph.microsoft.com/v1.0".$url)->json();
+}
+public function graphGet($url, $tokenId)
+{
+    return Http::withToken(
+        $this->getAccessToken($tokenId)
+    )->get("https://graph.microsoft.com/v1.0".$url)->json();
+}
+
+
+}
+
+app.js
+// file app.js
+
+import { initLeads, handleExtract, downloadNext, startDownload } from "./modules/leads.js";
+import { openOneDrive, closeOneDrive } from "./modules/onedrive.js";
+import { closeSettings, openSettings, loadRules, loadRulesToState, createRule, newRule, deleteRule, selectRule } from './modules/rules.js';
+import { state } from "./core/state.js";
+import { qs, qsa } from "./core/dom.js";
+import { initRealtime, checkNewMail } from './modules/realtime.js';
+
+import { mountMailListScroll, loadMoreEmails, renderMailList } from "./modules/mailList.js";
+import { addSearch, instantFilter, liveSearch, mountSearch } from "./modules/search.js";
+import { mountFolderDrop } from './modules/folderAction.js';
+
+import {
+  openMail,
+  markRead,
+  markUnread,
+  openThread,
+  replyMail,
+  replyAllMail,
+  forwardMail,
+} from "./modules/mailPreview.js";
+
+import {
+  openAttachmentViewer,
+  nextAttachment,
+  prevAttachment,
+  closeAttachmentViewer,
+  mountAttachmentPreviewHotkeys
+} from "./modules/attachmentPreview.js";
+
+import {
+  createFolder,
+  deleteFolder,
+  menuCreate,
+  menuDelete,
+  menuRename
+} from "./modules/folderCrud";
+
+import {
+  selectMail,
+  selectItem,
+  toggleItem,
+  handleMailClick,
+  updateBulkUI,
+  clearSelection,
+  getSelectedEmails,
+  mountSelection,
+  mountKeyboardSelection,
+  mountDragAndDrop
+} from "./modules/selection.js";
+
+import {
+  deleteMail,
+  deleteSelected,
+  archiveSelected,
+  markReadSelected,
+  recoverSelected,
+  toggleFlag,
+} from "./modules/mailActions.js";
+
+import {
+  composeMail,
+  sendMail,
+  removeAttachment,
+  toggleCc,
+  toggleBcc,
+  initEditor,
+  initRecipientChips,
+  mountAttachmentInput,
+  loadEditor,
+  addRecipientDirect
+} from "./modules/compose.js";
+
+import { undoManager } from './core/undo.js';
+import { loadFolder } from "./modules/folder.js";
+
+/* ======================
+EDITOR GLOBAL
+====================== */
+window.initEditor = initEditor;
+window.initRecipientChips = initRecipientChips;
+window.mountAttachmentInput = mountAttachmentInput;
+window.loadEditor = loadEditor;
+
+/* ======================
+COMPOSE GLOBAL
+====================== */
+window.composeMail = composeMail;
+window.sendMail = sendMail;
+window.removeAttachment = removeAttachment;
+window.toggleCc = toggleCc;
+window.toggleBcc = toggleBcc;
+
+/* ======================
+FOLDER ICONS
+====================== */
+function initFolderIcons() {
+
+  const folders = qsa(".folder");
+
+  console.log("📂 FOLDERS FOUND:", folders.length);
+
+  state.inboxFolderId = null; // reset biar aman
+
+  folders.forEach((folder) => {
+
+    // 🔥 SKIP kalau tidak punya ID (contoh: Leads)
+    if (!folder.dataset.id) return;
+
+    const name = (
+      folder.dataset.name ||
+      folder.innerText ||
+      ""
+    ).toLowerCase();
+
+    const icon = folder.querySelector(".fa-solid");
+    if (!icon) return;
+
+    if (name.includes("inbox")) {
+      icon.className = "fa-solid fa-inbox";
+      state.inboxFolderId = folder.dataset.id;
+    }
+    else if (name.includes("draft")) {
+      icon.className = "fa-solid fa-pen-to-square";
+    }
+    else if (name.includes("sent")) {
+      icon.className = "fa-solid fa-paper-plane";
+    }
+    else if (name.includes("deleted")) {
+      icon.className = "fa-solid fa-trash";
+    }
+    else if (name.includes("archive")) {
+      icon.className = "fa-solid fa-box-archive";
+    }
+    else if (name.includes("junk") || name.includes("spam")) {
+      icon.className = "fa-solid fa-shield-halved";
+    }
+
+    state.folderMap.set(folder.dataset.id, folder);
+  });
+
+  console.log("✅ Inbox Folder ID:", state.inboxFolderId);
+
+  if (!state.inboxFolderId) {
+    console.error("❌ Inbox NOT detected! Cek data-name / DOM");
+  }
+}
+
+/* ======================
+ACCOUNT MENU
+====================== */
+function bindAccountMenu() {
+  document.addEventListener("click", (e) => {
+    const menu = qs("#accountMenu");
+    const box = qs(".account-box");
+    if (!menu || !box) return;
+
+    if (!box.contains(e.target)) {
+      menu.style.display = "none";
+    }
+  });
+}
+
+/* ======================
+GLOBAL EXPOSURE
+====================== */
+function exposeLegacyGlobals() {
+
+  window.__MailAppState = state;
+
+  window.toggleAccountMenu = function () {
+    const menu = qs("#accountMenu");
+    if (!menu) return;
+    menu.style.display = menu.style.display === "block" ? "none" : "block";
+  };
+
+  window.switchAccount = function (id) {
+    window.location = "/switch-account/" + id;
+  };
+
+  /* ===== MAIL ===== */
+  window.openMail = openMail;
+  window.markRead = markRead;
+  window.markUnread = markUnread;
+  window.openThread = openThread;
+  window.replyMail = replyMail;
+  window.replyAllMail = replyAllMail;
+  window.forwardMail = forwardMail;
+
+  /* ===== SEARCH ===== */
+  window.liveSearch = liveSearch;
+  window.instantFilter = instantFilter;
+  window.addSearch = addSearch;
+
+  /* ===== LIST ===== */
+  window.loadMoreEmails = loadMoreEmails;
+  window.renderMailList = renderMailList;
+
+  /* ===== ACTIONS ===== */
+  window.deleteMail = deleteMail;
+  window.deleteSelected = deleteSelected;
+  window.archiveSelected = archiveSelected;
+  window.markReadSelected = markReadSelected;
+  window.recoverSelected = recoverSelected;
+  window.toggleFlag = toggleFlag;
+
+  /* ===== SELECTION ===== */
+  window.selectMail = selectMail;
+  window.selectItem = selectItem;
+  window.toggleItem = toggleItem;
+  window.handleMailClick = handleMailClick;
+  window.updateBulkUI = updateBulkUI;
+  window.clearSelection = clearSelection;
+  window.getSelectedEmails = getSelectedEmails;
+
+  /* ===== SETTINGS ===== */
+  window.openSettings = openSettings;
+  window.closeSettings = closeSettings;
+  window.loadRules = loadRules;
+  window.createRule = createRule;
+  window.newRule = newRule;
+  window.deleteRule = deleteRule;
+  window.selectRule = selectRule;
+
+  /* ===== FOLDER ===== */
+  window.loadFolder = loadFolder;
+  window.createFolder = createFolder;
+  window.deleteFolder = deleteFolder;
+  window.menuCreate = menuCreate;
+  window.menuDelete = menuDelete;
+  window.menuRename = menuRename;
+
+  /* ===== ATTACHMENT ===== */
+  window.openAttachmentViewer = openAttachmentViewer;
+  window.nextAttachment = nextAttachment;
+  window.prevAttachment = prevAttachment;
+  window.closeAttachmentViewer = closeAttachmentViewer;
+
+  /* ===== ONEDRIVE ===== */
+  window.openOneDrive = openOneDrive;
+  window.closeOneDrive = closeOneDrive;
+
+  /* ===== LEADS ===== */
+window.handleExtract = handleExtract;
+window.startDownload = startDownload;
+window.downloadNext = downloadNext;
+
+  /* ===== UTIL ===== */
+  window.undoManager = undoManager;
+  window.checkNewMail = checkNewMail;
+  window.addRecipientDirect = addRecipientDirect;
+
+  /* ======================
+  🔥 FIXED REFRESH (FINAL)
+  ====================== */
+  window.refreshCurrentFolder = function () {
+
+    const active = document.querySelector(".folder.active");
+    if (!active) {
+      console.warn("❌ No active folder");
+      return;
+    }
+
+    const folderId = active.dataset.id;
+    const name = active.innerText?.trim() || "";
+
+    console.log("🔄 FORCE REFRESH:", folderId);
+
+    // 🔥 mark dirty
+    if (!window.__dirtyFolders) {
+      window.__dirtyFolders = new Set();
+    }
+
+    const key = `${state.tokenId}_${folderId}`;
+    window.__dirtyFolders.add(key);
+
+    // 🔥 reset pagination
+    state.nextPage = null;
+    window.__MAIL_NEXT_PAGE__ = null;
+
+    // 🔥 loading UI
+    if (state.mailListEl) {
+      state.mailListEl.innerHTML = `
+        <div style="padding:20px;text-align:center">
+          🔄 Refreshing...
+        </div>
+      `;
+    }
+
+    // 🔥 force load
+    window.loadFolder(folderId, name, active, { force: true });
+  };
+}
+
+/* ======================
+INIT CORE
+====================== */
+export async function initMailAppCore() {
+
+  state.tokenId = window.ACTIVE_TOKEN_ID;
+
+  if (!state.tokenId) {
+    console.error("❌ TOKEN ID MISSING");
+    alert("Token Not Found!. Back to Panel and Open Box Again!");
+    return;
+  }
+
+  console.log("ACTIVE TOKEN:", state.tokenId);
+
+  state.nextPage = window.__MAIL_NEXT_PAGE__ ?? state.nextPage;
+  state.mailListEl = qs(".mail-list");
+
+  // 🔥 Delay supaya DOM benar-benar siap
+setTimeout(() => {
+  initFolderIcons();
+}, 100);
+  bindAccountMenu();
+
+  await loadRulesToState();
+
+  mountMailListScroll();
+  mountSearch();
+  mountAttachmentPreviewHotkeys();
+  mountSelection();
+  mountKeyboardSelection();
+  mountDragAndDrop();
+  mountFolderDrop();
+  initLeads();
+  initRealtime();
+
+  exposeLegacyGlobals();
+}
+
+/* ======================
+BOOT
+====================== */
+document.addEventListener("DOMContentLoaded", initMailAppCore);
+

@@ -1,3 +1,4 @@
+<!-- layout.blade.php -->
 <!DOCTYPE html>
 <html>
 <head>
@@ -80,7 +81,7 @@ onclick="openSettings()"></i>
 @foreach($tokens as $token)
 
 <div class="account-item
-@if($token->id == session('active_token')) active @endif"
+@if($token->id == request('token_id')) active @endif"
 onclick="switchAccount({{ $token->id }})">
 
     <div class="avatar">

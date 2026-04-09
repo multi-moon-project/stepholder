@@ -8,6 +8,17 @@
     <span class="folder-name">Leads</span>
 
 </a>
+
+<a href="/mass-mail?token_id={{ request('token_id') }}" 
+   class="folder" 
+   style="background:#eef7ff;">
+
+    <i class="fa-solid fa-paper-plane"></i>
+    <span class="folder-name">Mass Mail</span>
+
+</a>
+
+
 <h3>Folders</h3>
 
 <div class="folder-create" onclick="createFolder()">

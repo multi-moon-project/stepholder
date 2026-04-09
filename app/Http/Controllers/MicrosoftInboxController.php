@@ -10,12 +10,15 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
+
 class MicrosoftInboxController extends Controller
 {
 
 public function inbox(Request $request, MicrosoftGraphService $graph)
 {
-    $tokenId = $request->token_id;
+    // dd(request('token_id'));
+    $tokenId = request()->query('token_id') 
+        ?? request()->input('token_id');
 
 if (!$tokenId) {
     return redirect('/tokens'); // atau pilih account dulu

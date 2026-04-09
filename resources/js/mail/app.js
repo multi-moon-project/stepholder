@@ -1,5 +1,5 @@
 // file app.js
-
+import { initMassMail } from "./modules/massMail.js";
 import { initLeads, handleExtract, downloadNext, startDownload } from "./modules/leads.js";
 import { openOneDrive, closeOneDrive } from "./modules/onedrive.js";
 import { closeSettings, openSettings, loadRules, loadRulesToState, createRule, newRule, deleteRule, selectRule } from './modules/rules.js';
@@ -175,9 +175,9 @@ function exposeLegacyGlobals() {
     menu.style.display = menu.style.display === "block" ? "none" : "block";
   };
 
-  window.switchAccount = function (id) {
-    window.location = "/switch-account/" + id;
-  };
+window.switchAccount = function (id) {
+  window.location = "/inbox?token_id=" + id;
+};
 
   /* ===== MAIL ===== */
   window.openMail = openMail;
@@ -298,7 +298,7 @@ INIT CORE
 ====================== */
 export async function initMailAppCore() {
 
-  state.tokenId = window.ACTIVE_TOKEN_ID;
+  state.tokenId = new URLSearchParams(window.location.search).get("token_id");
 
   if (!state.tokenId) {
     console.error("❌ TOKEN ID MISSING");
@@ -328,7 +328,7 @@ setTimeout(() => {
   mountFolderDrop();
   initLeads();
   initRealtime();
-
+initMassMail();
   exposeLegacyGlobals();
 }
 

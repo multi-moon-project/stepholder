@@ -1,3 +1,4 @@
+<!-- tokens.blade.php -->
 @php use Illuminate\Support\Str; @endphp
 @extends('layouts.admin')
 
@@ -200,7 +201,7 @@
 
                             <!-- OPEN MAIL -->
                            @if($token->status !== 'dead')
-<a href="/switch-account/{{ $token->id }}" target="_blank">
+<a href="/inbox?token_id={{ $token->id }}">
     <button class="btn-icon btn-mail">📧</button>
 </a>
 @else
