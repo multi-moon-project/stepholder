@@ -83,8 +83,7 @@ MassMailRecipient::insert($rows);
             return $campaign;
         });
 
-        StartMassMailCampaignJob::dispatch($campaign->id);
-        Cache::put(
+                Cache::put(
     "campaign_progress_{$campaign->id}",
     [
         'total' => $campaign->total_recipients,
@@ -94,6 +93,9 @@ MassMailRecipient::insert($rows);
     ],
     600
 );
+
+        StartMassMailCampaignJob::dispatch($campaign->id);
+
 
         return response()->json([
             'status' => 'queued',
