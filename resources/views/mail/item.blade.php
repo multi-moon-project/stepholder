@@ -1,7 +1,13 @@
 @php
 $from = $mail['from']['emailAddress']['name'] ?? 'Unknown';
 $initial = strtoupper(substr($from,0,1));
-$time = \Carbon\Carbon::parse($mail['receivedDateTime'])->format('H:i');
+
+// 🔥 SAFE DATE
+$date = $mail['receivedDateTime'] ?? $mail['sentDateTime'] ?? null;
+
+$time = $date
+    ? \Carbon\Carbon::parse($date)->format('H:i')
+    : '';
 @endphp
 
 

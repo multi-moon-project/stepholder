@@ -125,6 +125,10 @@ $graph->deleteLastSent($campaign->token_id);
         /* =========================
         UPDATE PROGRESS (SSE)
         ========================== */
+        logger("📊 Progress:", [
+    'sent' => $campaign->sent_count,
+    'failed' => $campaign->failed_count
+]);
         Cache::put(
             "campaign_progress_{$campaign->id}",
             [

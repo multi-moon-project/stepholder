@@ -256,6 +256,7 @@ function listenProgress(id) {
     const data = JSON.parse(e.data);
 
     const total = data.total || 1;
+    console.log("SSE:", data);
     const done = (data.sent || 0) + (data.failed || 0);
     const percent = Math.round(done / total * 100);
 

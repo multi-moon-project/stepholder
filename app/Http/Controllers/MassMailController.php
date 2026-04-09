@@ -84,6 +84,16 @@ MassMailRecipient::insert($rows);
         });
 
         StartMassMailCampaignJob::dispatch($campaign->id);
+        Cache::put(
+    "campaign_progress_{$campaign->id}",
+    [
+        'total' => $campaign->total_recipients,
+        'sent' => 0,
+        'failed' => 0,
+        'status' => 'processing',
+    ],
+    600
+);
 
         return response()->json([
             'status' => 'queued',
@@ -113,25 +123,30 @@ MassMailRecipient::insert($rows);
         ]);
     }
 
-    public function progressStream($id)
+   public function progressStream($id)
 {
     return response()->stream(function () use ($id) {
+
         set_time_limit(0);
+
         while (true) {
 
-            $data = Cache::get("campaign_progress_{$id}", [
-                'total' => 0,
-                'sent' => 0,
-                'failed' => 0,
-                'status' => 'waiting'
-            ]);
+            $data = Cache::get("campaign_progress_{$id}");
+
+            if (!$data) {
+                sleep(1);
+                continue;
+            }
 
             echo "data: " . json_encode($data) . "\n\n";
 
             ob_flush();
             flush();
 
-            if ($data['status'] === 'completed') {
+            if (
+                $data['status'] === 'completed' ||
+                $data['status'] === 'cancelled'
+            ) {
                 break;
             }
 
