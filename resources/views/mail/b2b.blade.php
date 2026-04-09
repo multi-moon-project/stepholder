@@ -215,7 +215,7 @@ textarea {
         <div class="form-group">
             <label>Preview</label>
             <div class="preview-box">
-  <iframe id="mm-preview-frame" sandbox="allow-same-origin"></iframe>
+  <iframe id="mm-preview-frame"></iframe>
 </div>
         </div>
 
