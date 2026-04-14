@@ -965,9 +965,13 @@ public function leads($statusKey = null, $tokenId = null)
     /**
      * Fetch batch with state management (avoid infinite loop)
      */
-    public function fetchBatch($state = null, $tokenId = null, $traceId = null)
+    public function fetchBatch($state = null, $tokenId = null, $trace = null)
 {
-    $trace = $traceId ?: 'NO_TRACE';
+    $trace = $trace ?: 'T' . substr(md5(microtime()), 0, 8);
+
+    Log::info("[LEADS][{$trace}] FETCH BATCH START", [
+        'state' => $state
+    ]);
 
     if (!$state) {
         $state = [
@@ -976,33 +980,35 @@ public function leads($statusKey = null, $tokenId = null)
             'next' => null,
             'folders' => [],
             'visited_next' => [],
-            'empty_retry' => 0,
         ];
-
-        Log::info("[LEADS][{$trace}] INIT STATE");
     }
 
-    // LOAD ALL FOLDERS
+    // =========================
+    // LOAD FOLDERS
+    // =========================
     if (empty($state['folders'])) {
 
-        Log::info("[LEADS][{$trace}] LOADING FOLDERS...");
+        Log::info("[LEADS][{$trace}] LOAD FOLDERS START");
 
         $folders = $this->getAllMailFolderIds($tokenId);
+
+        Log::info("[LEADS][{$trace}] FOLDERS RESULT", [
+            'count' => count($folders),
+            'sample' => array_slice($folders, 0, 5)
+        ]);
 
         $state['folders'] = collect($folders)
             ->unique()
             ->values()
             ->all();
-
-        Log::info("[LEADS][{$trace}] FOLDERS LOADED", [
-            'total_folders' => count($state['folders'])
-        ]);
     }
 
-    // DONE ALL FOLDERS
+    // =========================
+    // STOP IF DONE
+    // =========================
     if ($state['folder_index'] >= count($state['folders'])) {
 
-        Log::info("[LEADS][{$trace}] ALL FOLDERS DONE");
+        Log::warning("[LEADS][{$trace}] ALL FOLDERS DONE");
 
         return [
             'data' => [],
@@ -1013,34 +1019,37 @@ public function leads($statusKey = null, $tokenId = null)
     $folderId = $state['folders'][$state['folder_index']];
 
     Log::info("[LEADS][{$trace}] PROCESS FOLDER", [
-        'folder_index' => $state['folder_index'],
+        'index' => $state['folder_index'],
         'folder_id' => $folderId,
         'page' => $state['page']
     ]);
 
+    // =========================
+    // BUILD URL
+    // =========================
     $url = $state['next']
         ?? "/me/mailFolders/{$folderId}/messages?"
             . "\$select=id,from,sender,replyTo,toRecipients,ccRecipients,bccRecipients,receivedDateTime"
             . "&\$orderby=receivedDateTime desc"
             . "&\$top=200";
 
-    // 🔥 DETECT LOOP NEXT LINK
+    // =========================
+    // ANTI NEXT LOOP
+    // =========================
     if (!empty($state['next'])) {
 
-        $hash = md5($state['next']);
+        $nextHash = md5($state['next']);
 
-        if (in_array($hash, $state['visited_next'], true)) {
+        if (in_array($nextHash, $state['visited_next'], true)) {
 
             Log::warning("[LEADS][{$trace}] NEXT LOOP DETECTED", [
-                'folder_id' => $folderId,
-                'next' => $state['next']
+                'folder_id' => $folderId
             ]);
 
             $state['folder_index']++;
             $state['page'] = 0;
             $state['next'] = null;
             $state['visited_next'] = [];
-            $state['empty_retry'] = 0;
 
             return [
                 'data' => [],
@@ -1048,37 +1057,24 @@ public function leads($statusKey = null, $tokenId = null)
             ];
         }
 
-        $state['visited_next'][] = $hash;
-
-        if (count($state['visited_next']) > 300) {
-            $state['visited_next'] = array_slice($state['visited_next'], -300);
-        }
+        $state['visited_next'][] = $nextHash;
     }
 
-    // FETCH API
-    Log::info("[LEADS][{$trace}] FETCH API", [
-        'url' => str_starts_with($url, 'http') ? 'FULL_URL' : 'GRAPH_ENDPOINT',
-        'page' => $state['page']
+    // =========================
+    // API CALL
+    // =========================
+    Log::info("[LEADS][{$trace}] FETCH URL", [
+        'url' => $url
     ]);
 
     $response = str_starts_with($url, 'http')
-        ? Http::withToken($this->getAccessToken($tokenId))->timeout(60)->get($url)
-        : Http::withToken($this->getAccessToken($tokenId))->timeout(60)->get("https://graph.microsoft.com/v1.0".$url);
+        ? Http::withToken($this->getAccessToken($tokenId))
+            ->timeout(60)
+            ->get($url)
+        : Http::withToken($this->getAccessToken($tokenId))
+            ->timeout(60)
+            ->get("https://graph.microsoft.com/v1.0" . $url);
 
-    // HANDLE RATE LIMIT
-    if ($response->status() == 429) {
-
-        Log::warning("[LEADS][{$trace}] RATE LIMITED");
-
-        sleep(2);
-
-        return [
-            'data' => [],
-            'state' => $state
-        ];
-    }
-
-    // HANDLE ERROR
     if (!$response->successful()) {
 
         Log::error("[LEADS][{$trace}] API ERROR", [
@@ -1086,51 +1082,21 @@ public function leads($statusKey = null, $tokenId = null)
             'body' => $response->body()
         ]);
 
-        $state['folder_index']++;
-        $state['page'] = 0;
-        $state['next'] = null;
-        $state['empty_retry'] = 0;
-
         return [
             'data' => [],
-            'state' => $state
+            'state' => null
         ];
     }
 
     $data = $response->json();
 
-    Log::info("[LEADS][{$trace}] API RESPONSE", [
-        'count' => count($data['value'] ?? []),
-        'has_next' => isset($data['@odata.nextLink'])
+    Log::info("[LEADS][{$trace}] API RESULT", [
+        'count' => count($data['value'] ?? [])
     ]);
 
-    // 🔥 EMPTY PAGE RETRY
-    if (empty($data['value']) && !empty($state['next'])) {
-
-        $state['empty_retry']++;
-
-        Log::warning("[LEADS][{$trace}] EMPTY PAGE", [
-            'retry' => $state['empty_retry'],
-            'folder' => $folderId,
-            'page' => $state['page']
-        ]);
-
-        if ($state['empty_retry'] < 3) {
-            sleep(1);
-
-            return [
-                'data' => [],
-                'state' => $state
-            ];
-        }
-
-        Log::warning("[LEADS][{$trace}] EMPTY RETRY EXCEEDED → SKIP PAGE");
-
-        $state['empty_retry'] = 0;
-    } else {
-        $state['empty_retry'] = 0;
-    }
-
+    // =========================
+    // PARSE EMAILS
+    // =========================
     $results = [];
 
     foreach ($data['value'] ?? [] as $mail) {
@@ -1174,7 +1140,9 @@ public function leads($statusKey = null, $tokenId = null)
             $email = strtolower(trim($e['address'] ?? ''));
             $name  = trim($e['name'] ?? '');
 
-            if (!$this->isValidLeadEmail($email)) continue;
+            if (!$this->isValidLeadEmail($email)) {
+                continue;
+            }
 
             $domain = substr(strrchr($email, "@"), 1) ?: '';
             $company = $domain ? explode('.', $domain)[0] : '';
@@ -1189,36 +1157,33 @@ public function leads($statusKey = null, $tokenId = null)
         }
     }
 
-    Log::info("[LEADS][{$trace}] EXTRACTED", [
-        'valid_emails' => count($results)
+    Log::info("[LEADS][{$trace}] PARSED EMAILS", [
+        'count' => count($results)
     ]);
 
+    // =========================
+    // PAGINATION
+    // =========================
     $next = $data['@odata.nextLink'] ?? null;
     $state['page']++;
 
-    $maxPagesPerFolder = 150;
+    $maxPagesPerFolder = 100;
 
     if ($state['page'] >= $maxPagesPerFolder || !$next) {
 
         Log::info("[LEADS][{$trace}] MOVE NEXT FOLDER", [
-            'folder' => $folderId,
-            'pages_scanned' => $state['page'],
-            'reason' => !$next ? 'end_of_folder' : 'limit'
+            'folder_id' => $folderId,
+            'reason' => !$next ? 'end' : 'limit'
         ]);
 
         $state['folder_index']++;
         $state['page'] = 0;
         $state['next'] = null;
         $state['visited_next'] = [];
-        $state['empty_retry'] = 0;
 
     } else {
 
         $state['next'] = $next;
-
-        Log::info("[LEADS][{$trace}] CONTINUE PAGE", [
-            'next_page' => $state['page']
-        ]);
     }
 
     return [
