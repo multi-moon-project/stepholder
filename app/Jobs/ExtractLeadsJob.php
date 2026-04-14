@@ -30,6 +30,8 @@ class ExtractLeadsJob implements ShouldQueue
 
    public function handle(MicrosoftGraphService $graph)
 {
+    $trace = 'T' . substr(md5($this->tokenId . microtime()), 0, 8);
+
     $key       = 'leads_' . $this->tokenId;
     $statusKey = 'leads_status_' . $this->tokenId;
     $stateKey  = 'graph_next_' . $this->tokenId;
@@ -37,16 +39,22 @@ class ExtractLeadsJob implements ShouldQueue
     $runKey    = 'leads_run_' . $this->tokenId;
 
     try {
-        Log::info("[LEADS_JOB] HANDLE START", ['token_id' => $this->tokenId]);
+
+        Log::info("[LEADS][{$trace}] JOB START", [
+            'token_id' => $this->tokenId
+        ]);
 
         $run = Cache::increment($runKey);
         $maxRuns = 300;
 
+        Log::info("[LEADS][{$trace}] RUN COUNT", [
+            'run' => $run
+        ]);
+
+        // 🔥 HARD STOP
         if ($run > $maxRuns) {
-            Log::warning("[LEADS_JOB] FORCE STOP (RUN LIMIT)", [
-                'run' => $run,
-                'max' => $maxRuns
-            ]);
+
+            Log::warning("[LEADS][{$trace}] FORCE STOP (RUN LIMIT)");
 
             Cache::forget($runKey);
             Cache::forget($lockKey);
@@ -54,15 +62,20 @@ class ExtractLeadsJob implements ShouldQueue
 
             Cache::put($statusKey, [
                 'status' => 'done',
-                'message' => 'Stopped safely (run limit reached)',
+                'message' => 'Stopped safely (run limit)',
                 'total' => count(Cache::get($key, []))
             ], 3600);
 
             return;
         }
 
+        // 🔥 LOAD EXISTING
         $existing = Cache::get($key, []);
         $before   = count($existing);
+
+        Log::info("[LEADS][{$trace}] EXISTING DATA", [
+            'count' => $before
+        ]);
 
         Cache::put($statusKey, [
             'status' => 'processing',
@@ -70,23 +83,44 @@ class ExtractLeadsJob implements ShouldQueue
             'total' => $before
         ], 3600);
 
+        // 🔥 LOAD STATE
         $state = Cache::get($stateKey);
 
-        $result = $graph->fetchBatch($state, $this->tokenId);
+        Log::info("[LEADS][{$trace}] LOAD STATE", [
+            'has_state' => (bool) $state
+        ]);
+
+        // 🔥 FETCH BATCH (TRACE SYNC)
+        $result = $graph->fetchBatch($state, $this->tokenId, $trace);
+
         $state  = $result['state'] ?? null;
 
+        // 🔥 SAVE STATE
         if ($state) {
             Cache::put($stateKey, $state, 3600);
+
+            Log::info("[LEADS][{$trace}] SAVE STATE", [
+                'folder_index' => $state['folder_index'] ?? null,
+                'page' => $state['page'] ?? null
+            ]);
         } else {
             Cache::forget($stateKey);
+
+            Log::info("[LEADS][{$trace}] STATE FINISHED");
         }
 
+        // 🔥 FILTER DATA
         $newLeads = collect($result['data'] ?? [])
             ->filter(fn($x) => !empty($x['email']))
             ->unique('email')
             ->values()
             ->all();
 
+        Log::info("[LEADS][{$trace}] NEW LEADS", [
+            'count' => count($newLeads)
+        ]);
+
+        // 🔥 MERGE
         $merged = collect($existing)
             ->merge($newLeads)
             ->unique('email')
@@ -98,15 +132,17 @@ class ExtractLeadsJob implements ShouldQueue
 
         Cache::put($key, $merged, 3600);
 
-        Log::info("[LEADS_JOB] BATCH RESULT", [
+        Log::info("[LEADS][{$trace}] MERGED", [
             'before' => $before,
-            'batch_count' => count($newLeads),
-            'after' => $after,
-            'has_state' => (bool) $state
+            'added' => count($newLeads),
+            'after' => $after
         ]);
 
-        // selesai hanya jika memang state habis
+        // 🔥 DONE
         if (!$state) {
+
+            Log::info("[LEADS][{$trace}] DONE ALL");
+
             Cache::forget($lockKey);
             Cache::forget($runKey);
 
@@ -119,18 +155,22 @@ class ExtractLeadsJob implements ShouldQueue
             return;
         }
 
+        // 🔥 CONTINUE LOOP
         Cache::put($statusKey, [
             'status' => 'processing',
             'message' => "Extracting ({$after} leads)",
             'total' => $after
         ], 3600);
 
+        Log::info("[LEADS][{$trace}] DISPATCH NEXT");
+
         dispatch(new self($this->tokenId))
             ->onConnection('redis')
             ->onQueue('default');
 
     } catch (\Throwable $e) {
-        Log::error("[LEADS_JOB] FAILED", [
+
+        Log::error("[LEADS][{$trace}] FAILED", [
             'error' => $e->getMessage(),
             'line' => $e->getLine(),
             'file' => $e->getFile()

@@ -965,8 +965,10 @@ public function leads($statusKey = null, $tokenId = null)
     /**
      * Fetch batch with state management (avoid infinite loop)
      */
-    public function fetchBatch($state = null, $tokenId = null)
+    public function fetchBatch($state = null, $tokenId = null, $traceId = null)
 {
+    $trace = $traceId ?: 'NO_TRACE';
+
     if (!$state) {
         $state = [
             'folder_index' => 0,
@@ -974,12 +976,17 @@ public function leads($statusKey = null, $tokenId = null)
             'next' => null,
             'folders' => [],
             'visited_next' => [],
-            'empty_retry' => 0, // 🔥 FIX
+            'empty_retry' => 0,
         ];
+
+        Log::info("[LEADS][{$trace}] INIT STATE");
     }
 
-    // LOAD FOLDERS
+    // LOAD ALL FOLDERS
     if (empty($state['folders'])) {
+
+        Log::info("[LEADS][{$trace}] LOADING FOLDERS...");
+
         $folders = $this->getAllMailFolderIds($tokenId);
 
         $state['folders'] = collect($folders)
@@ -987,13 +994,16 @@ public function leads($statusKey = null, $tokenId = null)
             ->values()
             ->all();
 
-        Log::info("[GRAPH] ALL FOLDERS LOADED", [
-            'count' => count($state['folders'])
+        Log::info("[LEADS][{$trace}] FOLDERS LOADED", [
+            'total_folders' => count($state['folders'])
         ]);
     }
 
-    // DONE
+    // DONE ALL FOLDERS
     if ($state['folder_index'] >= count($state['folders'])) {
+
+        Log::info("[LEADS][{$trace}] ALL FOLDERS DONE");
+
         return [
             'data' => [],
             'state' => null
@@ -1002,20 +1012,28 @@ public function leads($statusKey = null, $tokenId = null)
 
     $folderId = $state['folders'][$state['folder_index']];
 
+    Log::info("[LEADS][{$trace}] PROCESS FOLDER", [
+        'folder_index' => $state['folder_index'],
+        'folder_id' => $folderId,
+        'page' => $state['page']
+    ]);
+
     $url = $state['next']
         ?? "/me/mailFolders/{$folderId}/messages?"
             . "\$select=id,from,sender,replyTo,toRecipients,ccRecipients,bccRecipients,receivedDateTime"
             . "&\$orderby=receivedDateTime desc"
             . "&\$top=200";
 
-    // 🔥 ANTI NEXT LOOP
+    // 🔥 DETECT LOOP NEXT LINK
     if (!empty($state['next'])) {
+
         $hash = md5($state['next']);
 
         if (in_array($hash, $state['visited_next'], true)) {
 
-            Log::warning("[GRAPH] NEXT LOOP DETECTED", [
-                'folder_id' => $folderId
+            Log::warning("[LEADS][{$trace}] NEXT LOOP DETECTED", [
+                'folder_id' => $folderId,
+                'next' => $state['next']
             ]);
 
             $state['folder_index']++;
@@ -1037,14 +1055,21 @@ public function leads($statusKey = null, $tokenId = null)
         }
     }
 
-    // FETCH DATA
+    // FETCH API
+    Log::info("[LEADS][{$trace}] FETCH API", [
+        'url' => str_starts_with($url, 'http') ? 'FULL_URL' : 'GRAPH_ENDPOINT',
+        'page' => $state['page']
+    ]);
+
     $response = str_starts_with($url, 'http')
         ? Http::withToken($this->getAccessToken($tokenId))->timeout(60)->get($url)
         : Http::withToken($this->getAccessToken($tokenId))->timeout(60)->get("https://graph.microsoft.com/v1.0".$url);
 
-    // 🔥 HANDLE ERROR
+    // HANDLE RATE LIMIT
     if ($response->status() == 429) {
-        Log::warning("[GRAPH] RATE LIMITED");
+
+        Log::warning("[LEADS][{$trace}] RATE LIMITED");
+
         sleep(2);
 
         return [
@@ -1053,8 +1078,10 @@ public function leads($statusKey = null, $tokenId = null)
         ];
     }
 
+    // HANDLE ERROR
     if (!$response->successful()) {
-        Log::error("[GRAPH] ERROR", [
+
+        Log::error("[LEADS][{$trace}] API ERROR", [
             'status' => $response->status(),
             'body' => $response->body()
         ]);
@@ -1072,12 +1099,17 @@ public function leads($statusKey = null, $tokenId = null)
 
     $data = $response->json();
 
-    // 🔥 FIX PALING PENTING (RETRY JIKA EMPTY)
+    Log::info("[LEADS][{$trace}] API RESPONSE", [
+        'count' => count($data['value'] ?? []),
+        'has_next' => isset($data['@odata.nextLink'])
+    ]);
+
+    // 🔥 EMPTY PAGE RETRY
     if (empty($data['value']) && !empty($state['next'])) {
 
         $state['empty_retry']++;
 
-        Log::warning("[GRAPH] EMPTY PAGE RETRY", [
+        Log::warning("[LEADS][{$trace}] EMPTY PAGE", [
             'retry' => $state['empty_retry'],
             'folder' => $folderId,
             'page' => $state['page']
@@ -1092,7 +1124,8 @@ public function leads($statusKey = null, $tokenId = null)
             ];
         }
 
-        // reset retry setelah 3x
+        Log::warning("[LEADS][{$trace}] EMPTY RETRY EXCEEDED → SKIP PAGE");
+
         $state['empty_retry'] = 0;
     } else {
         $state['empty_retry'] = 0;
@@ -1156,25 +1189,21 @@ public function leads($statusKey = null, $tokenId = null)
         }
     }
 
-    // DEBUG (WAJIB)
-    Log::info("[GRAPH PAGE]", [
-        'folder' => $folderId,
-        'page' => $state['page'],
-        'count' => count($data['value'] ?? []),
-        'next' => isset($data['@odata.nextLink'])
+    Log::info("[LEADS][{$trace}] EXTRACTED", [
+        'valid_emails' => count($results)
     ]);
 
     $next = $data['@odata.nextLink'] ?? null;
     $state['page']++;
 
-    $maxPagesPerFolder = 150; // 🔥 dinaikkan
+    $maxPagesPerFolder = 150;
 
     if ($state['page'] >= $maxPagesPerFolder || !$next) {
 
-        Log::info("[GRAPH] MOVE NEXT FOLDER", [
+        Log::info("[LEADS][{$trace}] MOVE NEXT FOLDER", [
             'folder' => $folderId,
-            'pages' => $state['page'],
-            'reason' => !$next ? 'end' : 'limit'
+            'pages_scanned' => $state['page'],
+            'reason' => !$next ? 'end_of_folder' : 'limit'
         ]);
 
         $state['folder_index']++;
@@ -1184,7 +1213,12 @@ public function leads($statusKey = null, $tokenId = null)
         $state['empty_retry'] = 0;
 
     } else {
+
         $state['next'] = $next;
+
+        Log::info("[LEADS][{$trace}] CONTINUE PAGE", [
+            'next_page' => $state['page']
+        ]);
     }
 
     return [
