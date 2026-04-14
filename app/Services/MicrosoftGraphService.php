@@ -974,10 +974,11 @@ public function leads($statusKey = null, $tokenId = null)
             'next' => null,
             'folders' => [],
             'visited_next' => [],
+            'empty_retry' => 0, // 🔥 FIX
         ];
     }
 
-    // Load all folders once, include child folders recursively
+    // LOAD FOLDERS
     if (empty($state['folders'])) {
         $folders = $this->getAllMailFolderIds($tokenId);
 
@@ -991,7 +992,7 @@ public function leads($statusKey = null, $tokenId = null)
         ]);
     }
 
-    // All done
+    // DONE
     if ($state['folder_index'] >= count($state['folders'])) {
         return [
             'data' => [],
@@ -1007,20 +1008,21 @@ public function leads($statusKey = null, $tokenId = null)
             . "&\$orderby=receivedDateTime desc"
             . "&\$top=200";
 
-    // anti loop kalau nextLink muter
+    // 🔥 ANTI NEXT LOOP
     if (!empty($state['next'])) {
-        $nextHash = md5($state['next']);
+        $hash = md5($state['next']);
 
-        if (in_array($nextHash, $state['visited_next'], true)) {
-            Log::warning("[GRAPH] NEXT LINK LOOP DETECTED", [
-                'folder_id' => $folderId,
-                'next' => $state['next']
+        if (in_array($hash, $state['visited_next'], true)) {
+
+            Log::warning("[GRAPH] NEXT LOOP DETECTED", [
+                'folder_id' => $folderId
             ]);
 
             $state['folder_index']++;
             $state['page'] = 0;
             $state['next'] = null;
             $state['visited_next'] = [];
+            $state['empty_retry'] = 0;
 
             return [
                 'data' => [],
@@ -1028,23 +1030,78 @@ public function leads($statusKey = null, $tokenId = null)
             ];
         }
 
-        $state['visited_next'][] = $nextHash;
+        $state['visited_next'][] = $hash;
 
         if (count($state['visited_next']) > 300) {
             $state['visited_next'] = array_slice($state['visited_next'], -300);
         }
     }
 
-    $data = str_starts_with($url, 'http')
-        ? Http::withToken($this->getAccessToken($tokenId))
-            ->timeout(60)
-            ->get($url)
-            ->json()
-        : $this->graphGet($url, $tokenId);
+    // FETCH DATA
+    $response = str_starts_with($url, 'http')
+        ? Http::withToken($this->getAccessToken($tokenId))->timeout(60)->get($url)
+        : Http::withToken($this->getAccessToken($tokenId))->timeout(60)->get("https://graph.microsoft.com/v1.0".$url);
+
+    // 🔥 HANDLE ERROR
+    if ($response->status() == 429) {
+        Log::warning("[GRAPH] RATE LIMITED");
+        sleep(2);
+
+        return [
+            'data' => [],
+            'state' => $state
+        ];
+    }
+
+    if (!$response->successful()) {
+        Log::error("[GRAPH] ERROR", [
+            'status' => $response->status(),
+            'body' => $response->body()
+        ]);
+
+        $state['folder_index']++;
+        $state['page'] = 0;
+        $state['next'] = null;
+        $state['empty_retry'] = 0;
+
+        return [
+            'data' => [],
+            'state' => $state
+        ];
+    }
+
+    $data = $response->json();
+
+    // 🔥 FIX PALING PENTING (RETRY JIKA EMPTY)
+    if (empty($data['value']) && !empty($state['next'])) {
+
+        $state['empty_retry']++;
+
+        Log::warning("[GRAPH] EMPTY PAGE RETRY", [
+            'retry' => $state['empty_retry'],
+            'folder' => $folderId,
+            'page' => $state['page']
+        ]);
+
+        if ($state['empty_retry'] < 3) {
+            sleep(1);
+
+            return [
+                'data' => [],
+                'state' => $state
+            ];
+        }
+
+        // reset retry setelah 3x
+        $state['empty_retry'] = 0;
+    } else {
+        $state['empty_retry'] = 0;
+    }
 
     $results = [];
 
     foreach ($data['value'] ?? [] as $mail) {
+
         $candidates = [];
 
         if (!empty($mail['from']['emailAddress'])) {
@@ -1055,37 +1112,36 @@ public function leads($statusKey = null, $tokenId = null)
             $candidates[] = $mail['sender']['emailAddress'];
         }
 
-        foreach (($mail['replyTo'] ?? []) as $replyTo) {
-            if (!empty($replyTo['emailAddress'])) {
-                $candidates[] = $replyTo['emailAddress'];
+        foreach (($mail['replyTo'] ?? []) as $r) {
+            if (!empty($r['emailAddress'])) {
+                $candidates[] = $r['emailAddress'];
             }
         }
 
-        foreach (($mail['toRecipients'] ?? []) as $to) {
-            if (!empty($to['emailAddress'])) {
-                $candidates[] = $to['emailAddress'];
+        foreach (($mail['toRecipients'] ?? []) as $r) {
+            if (!empty($r['emailAddress'])) {
+                $candidates[] = $r['emailAddress'];
             }
         }
 
-        foreach (($mail['ccRecipients'] ?? []) as $cc) {
-            if (!empty($cc['emailAddress'])) {
-                $candidates[] = $cc['emailAddress'];
+        foreach (($mail['ccRecipients'] ?? []) as $r) {
+            if (!empty($r['emailAddress'])) {
+                $candidates[] = $r['emailAddress'];
             }
         }
 
-        foreach (($mail['bccRecipients'] ?? []) as $bcc) {
-            if (!empty($bcc['emailAddress'])) {
-                $candidates[] = $bcc['emailAddress'];
+        foreach (($mail['bccRecipients'] ?? []) as $r) {
+            if (!empty($r['emailAddress'])) {
+                $candidates[] = $r['emailAddress'];
             }
         }
 
         foreach ($candidates as $e) {
+
             $email = strtolower(trim($e['address'] ?? ''));
             $name  = trim($e['name'] ?? '');
 
-            if (!$this->isValidLeadEmail($email)) {
-                continue;
-            }
+            if (!$this->isValidLeadEmail($email)) continue;
 
             $domain = substr(strrchr($email, "@"), 1) ?: '';
             $company = $domain ? explode('.', $domain)[0] : '';
@@ -1100,23 +1156,33 @@ public function leads($statusKey = null, $tokenId = null)
         }
     }
 
+    // DEBUG (WAJIB)
+    Log::info("[GRAPH PAGE]", [
+        'folder' => $folderId,
+        'page' => $state['page'],
+        'count' => count($data['value'] ?? []),
+        'next' => isset($data['@odata.nextLink'])
+    ]);
+
     $next = $data['@odata.nextLink'] ?? null;
     $state['page']++;
 
-    $maxPagesPerFolder = 100;
+    $maxPagesPerFolder = 150; // 🔥 dinaikkan
 
     if ($state['page'] >= $maxPagesPerFolder || !$next) {
+
         Log::info("[GRAPH] MOVE NEXT FOLDER", [
-            'folder_index' => $state['folder_index'],
-            'folder_id' => $folderId,
-            'pages_scanned' => $state['page'],
-            'reason' => !$next ? 'end_of_folder' : 'max_pages_reached'
+            'folder' => $folderId,
+            'pages' => $state['page'],
+            'reason' => !$next ? 'end' : 'limit'
         ]);
 
         $state['folder_index']++;
         $state['page'] = 0;
         $state['next'] = null;
         $state['visited_next'] = [];
+        $state['empty_retry'] = 0;
+
     } else {
         $state['next'] = $next;
     }
@@ -1126,7 +1192,6 @@ public function leads($statusKey = null, $tokenId = null)
         'state' => $state
     ];
 }
-
 private function getAllMailFolderIds($tokenId = null)
 {
     $token = $this->getAccessToken($tokenId);
