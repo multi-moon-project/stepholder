@@ -1,8 +1,8 @@
 /* =========================
-   LEADS MODULE (SSE VERSION)
+   LEADS MODULE (POLLING VERSION)
 ========================= */
 
-let source = null;
+let pollTimer = null;
 
 /* =========================
    EXTRACTION
@@ -29,101 +29,98 @@ export async function handleExtract(){
 
     if(data.status === 'locked'){
         btn.innerText = '⏳ Running...';
-        startSSE();
+        startPolling();
         return;
     }
 
-    startSSE();
+    startPolling();
 }
 
 /* =========================
-   SSE STREAM
+   POLLING (REPLACE SSE)
 ========================= */
 
+function startPolling(){
 
-let sseRetryTimer = null;
-let sseClosedByApp = false;
-
-function startSSE() {
     const TOKEN_ID = window.ACTIVE_TOKEN_ID;
 
-    if (source) {
-        source.close();
+    // stop polling lama kalau ada
+    if(pollTimer){
+        clearInterval(pollTimer);
     }
 
-    if (sseRetryTimer) {
-        clearTimeout(sseRetryTimer);
-        sseRetryTimer = null;
-    }
+    pollTimer = setInterval(async () => {
 
-    sseClosedByApp = false;
+        try {
 
-    source = new EventSource(`/leads/stream?token_id=${TOKEN_ID}`);
+            const res = await fetch(`/leads/status?token_id=${TOKEN_ID}`);
+            const data = await res.json();
 
-    source.onmessage = function(event) {
-        const data = JSON.parse(event.data);
+            const btn = document.getElementById('extractBtn');
+            if (!btn) return;
 
-        const btn = document.getElementById('extractBtn');
-        if (!btn) return;
-
-        document.getElementById('statusText').innerText =
-            data.status + (data.total ? ` (${data.total})` : '');
-
-        document.getElementById('progressMsg').innerText =
-            data.message || '';
-
-        if (data.total) {
-            document.getElementById('totalLeads').innerText =
-                `📊 ${data.total} leads collected`;
-
-            let percent = Math.min(95, Math.log10(data.total + 1) * 30);
-            document.getElementById('progressBar').style.width = percent + '%';
-        }
-
-        if (data.status === 'processing') {
-            btn.innerText = '⏳ Extracting...';
-            btn.disabled = true;
-        }
-
-        if (data.status === 'done') {
-            document.getElementById('progressBar').style.width = '100%';
-            document.getElementById('statusText').innerText = '✅ Ready to download';
-
-            btn.innerText = '✅ Done';
-            btn.disabled = true;
-
-            document.getElementById('csvBtn').disabled = false;
-            document.getElementById('txtBtn').disabled = false;
-
-            sseClosedByApp = true;
-            source.close();
-        }
-
-        if (data.status === 'failed') {
+            // status text
             document.getElementById('statusText').innerText =
-                '❌ Error: ' + (data.message || 'Unknown error');
+                data.status + (data.total ? ` (${data.total})` : '');
 
-            btn.innerText = 'Retry';
-            btn.disabled = false;
+            // message
+            document.getElementById('progressMsg').innerText =
+                data.message || '';
 
-            sseClosedByApp = true;
-            source.close();
+            // total leads + progress bar
+            if (data.total) {
+
+                document.getElementById('totalLeads').innerText =
+                    `📊 ${data.total} leads collected`;
+
+                let percent = Math.max(
+                    5,
+                    Math.min(95, Math.log10(data.total + 1) * 30)
+                );
+
+                document.getElementById('progressBar').style.width = percent + '%';
+            }
+
+            // processing
+            if (data.status === 'processing') {
+                btn.innerText = '⏳ Extracting...';
+                btn.disabled = true;
+            }
+
+            // DONE
+            if (data.status === 'done') {
+
+                document.getElementById('progressBar').style.width = '100%';
+                document.getElementById('statusText').innerText = '✅ Ready to download';
+
+                btn.innerText = '✅ Done';
+                btn.disabled = true;
+
+                document.getElementById('csvBtn').disabled = false;
+                document.getElementById('txtBtn').disabled = false;
+
+                clearInterval(pollTimer);
+                pollTimer = null;
+            }
+
+            // FAILED
+            if (data.status === 'failed') {
+
+                document.getElementById('statusText').innerText =
+                    '❌ Error: ' + (data.message || '');
+
+                btn.innerText = 'Retry';
+                btn.disabled = false;
+
+                clearInterval(pollTimer);
+                pollTimer = null;
+            }
+
+        } catch (err) {
+            console.error("Polling error:", err);
         }
-    };
 
-    source.onerror = function(e) {
-        console.error("SSE ERROR", e);
-
-        if (source) {
-            source.close();
-        }
-
-        if (!sseClosedByApp) {
-            sseRetryTimer = setTimeout(() => {
-                startSSE();
-            }, 3000);
-        }
-    };
+    }, 1500); // tiap 1.5 detik
 }
 
 /* =========================
@@ -199,7 +196,7 @@ export async function downloadNext(){
 }
 
 /* =========================
-   AUTO RESUME (SSE)
+   AUTO RESUME (POLLING)
 ========================= */
 
 export async function initLeads(){
@@ -216,7 +213,7 @@ export async function initLeads(){
         btn.innerText = '⏳ Extracting...';
         btn.disabled = true;
 
-        startSSE(); // 🔥 langsung stream
+        startPolling(); // 🔥 auto resume
     }
 
     if(data.status === 'idle' || !data.status){
