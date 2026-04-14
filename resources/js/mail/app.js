@@ -327,7 +327,7 @@ setTimeout(() => {
   mountDragAndDrop();
   mountFolderDrop();
   initLeads();
-  initRealtime();
+  // initRealtime();
 initMassMail();
   exposeLegacyGlobals();
 }

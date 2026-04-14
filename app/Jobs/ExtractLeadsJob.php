@@ -28,82 +28,121 @@ class ExtractLeadsJob implements ShouldQueue
         Log::info("[LEADS_JOB::__construct]", ['token_id' => $this->tokenId]);
     }
 
-    public function handle(MicrosoftGraphService $graph)
-    {
-        $key       = 'leads_' . $this->tokenId;
-        $statusKey = 'leads_status_' . $this->tokenId;
-        $stateKey  = 'graph_next_' . $this->tokenId;
-        $lockKey   = 'leads_lock_' . $this->tokenId;
-        $runKey    = 'leads_run_' . $this->tokenId;
+   public function handle(MicrosoftGraphService $graph)
+{
+    $key       = 'leads_' . $this->tokenId;
+    $statusKey = 'leads_status_' . $this->tokenId;
+    $stateKey  = 'graph_next_' . $this->tokenId;
+    $lockKey   = 'leads_lock_' . $this->tokenId;
+    $runKey    = 'leads_run_' . $this->tokenId;
 
-        try {
-            Log::info("[LEADS_JOB] HANDLE START", ['token_id' => $this->tokenId]);
+    try {
+        Log::info("[LEADS_JOB] HANDLE START", ['token_id' => $this->tokenId]);
 
-            // SAFETY LIMIT
-            $run = Cache::increment($runKey);
-            if ($run > 50) {
-                Log::warning("[LEADS_JOB] FORCE STOP (LIMIT)");
-                Cache::forget($runKey);
-                Cache::forget($lockKey);
-                Cache::forget($stateKey);
-                Cache::put($statusKey, [
-                    'status' => 'done',
-                    'message' => 'Stopped (limit reached)',
-                    'total' => count(Cache::get($key, []))
-                ], 3600);
-                return;
-            }
+        $run = Cache::increment($runKey);
+        $maxRuns = 300;
 
-            // LOAD EXISTING LEADS
-            $existing = Cache::get($key, []);
-            $before   = count($existing);
-            Log::info("[LEADS_JOB] EXISTING", compact('before'));
-            Cache::put($statusKey, ['status'=>'processing','message'=>"Fetching batch...",'total'=>$before],3600);
+        if ($run > $maxRuns) {
+            Log::warning("[LEADS_JOB] FORCE STOP (RUN LIMIT)", [
+                'run' => $run,
+                'max' => $maxRuns
+            ]);
 
-            // LOAD STATE
-            $state = Cache::get($stateKey);
-            Log::info("[LEADS_JOB] STATE", ['state_exists'=>!!$state]);
+            Cache::forget($runKey);
+            Cache::forget($lockKey);
+            Cache::forget($stateKey);
 
-            // FETCH BATCH
-            $result = $graph->fetchBatch($state, $this->tokenId);
-            $state  = $result['state'] ?? null;
+            Cache::put($statusKey, [
+                'status' => 'done',
+                'message' => 'Stopped safely (run limit reached)',
+                'total' => count(Cache::get($key, []))
+            ], 3600);
 
-            // SIMPAN STATE
-            if ($state) Cache::put($stateKey, $state, 3600);
-            else Cache::forget($stateKey);
+            return;
+        }
 
-            $newLeads = collect($result['data'] ?? [])->filter(fn($x)=>!empty($x['email']))->values()->all();
-            Log::info("[LEADS_JOB] NEW BATCH", ['count'=>count($newLeads)]);
+        $existing = Cache::get($key, []);
+        $before   = count($existing);
 
-            // MERGE UNIQUE
-            $merged = collect($existing)->merge($newLeads)->unique('email')->values()->all();
-            $after = count($merged);
-            Cache::put($key,$merged,3600);
-            Log::info("[LEADS_JOB] MERGED", ['before'=>$before,'after'=>$after]);
+        Cache::put($statusKey, [
+            'status' => 'processing',
+            'message' => "Fetching batch...",
+            'total' => $before
+        ], 3600);
 
-            // STOP CONDITION
-            if (($after === $before && !$state) || empty($newLeads)) {
-                Log::warning("[LEADS_JOB] STOP CONDITION HIT");
-                Cache::forget($stateKey);
-                Cache::forget($lockKey);
-                Cache::forget($runKey);
-                $message = empty($newLeads) ? 'No data from API' : 'No new unique leads';
-                Cache::put($statusKey, ['status'=>'done','message'=>$message,'total'=>$after],3600);
-                return;
-            }
+        $state = Cache::get($stateKey);
 
-            // UPDATE STATUS
-            Cache::put($statusKey, ['status'=>'processing','message'=>"Extracting ($after leads)",'total'=>$after],3600);
+        $result = $graph->fetchBatch($state, $this->tokenId);
+        $state  = $result['state'] ?? null;
 
-            // CONTINUE NEXT JOB
-            Log::info("[LEADS_JOB] CONTINUE NEXT JOB");
-            dispatch(new self($this->tokenId))->onConnection('redis')->onQueue('default');
+        if ($state) {
+            Cache::put($stateKey, $state, 3600);
+        } else {
+            Cache::forget($stateKey);
+        }
 
-        } catch (\Throwable $e) {
-            Log::error("[LEADS_JOB] FAILED", ['error'=>$e->getMessage(),'line'=>$e->getLine(),'file'=>$e->getFile()]);
+        $newLeads = collect($result['data'] ?? [])
+            ->filter(fn($x) => !empty($x['email']))
+            ->unique('email')
+            ->values()
+            ->all();
+
+        $merged = collect($existing)
+            ->merge($newLeads)
+            ->unique('email')
+            ->sortBy('email')
+            ->values()
+            ->all();
+
+        $after = count($merged);
+
+        Cache::put($key, $merged, 3600);
+
+        Log::info("[LEADS_JOB] BATCH RESULT", [
+            'before' => $before,
+            'batch_count' => count($newLeads),
+            'after' => $after,
+            'has_state' => (bool) $state
+        ]);
+
+        // selesai hanya jika memang state habis
+        if (!$state) {
             Cache::forget($lockKey);
             Cache::forget($runKey);
-            Cache::put($statusKey, ['status'=>'failed','message'=>$e->getMessage()],3600);
+
+            Cache::put($statusKey, [
+                'status' => 'done',
+                'message' => "Extraction complete",
+                'total' => $after
+            ], 3600);
+
+            return;
         }
+
+        Cache::put($statusKey, [
+            'status' => 'processing',
+            'message' => "Extracting ({$after} leads)",
+            'total' => $after
+        ], 3600);
+
+        dispatch(new self($this->tokenId))
+            ->onConnection('redis')
+            ->onQueue('default');
+
+    } catch (\Throwable $e) {
+        Log::error("[LEADS_JOB] FAILED", [
+            'error' => $e->getMessage(),
+            'line' => $e->getLine(),
+            'file' => $e->getFile()
+        ]);
+
+        Cache::forget($lockKey);
+        Cache::forget($runKey);
+
+        Cache::put($statusKey, [
+            'status' => 'failed',
+            'message' => $e->getMessage()
+        ], 3600);
     }
+}
 }

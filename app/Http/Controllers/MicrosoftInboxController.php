@@ -1683,20 +1683,16 @@ public function leadsPage(Request $request)
         abort(400, 'Missing token_id');
     }
 
-    // 🔥 RESET hanya untuk mailbox ini
-    Cache::forget('leads_status_' . $tokenId);
-    Cache::forget('graph_next_' . $tokenId);
-
     $leads = Cache::get('leads_' . $tokenId, []);
 
-    $graph = app(\App\Services\MicrosoftGraphService::class);
+    $graph = app(MicrosoftGraphService::class);
     $folders = $graph->folders($tokenId)['value'] ?? [];
 
     return view('leads.index', [
         'leads' => $leads,
         'totalLeads' => count($leads),
         'folders' => $folders,
-        'tokenId' => $tokenId, // 🔥 WAJIB
+        'tokenId' => $tokenId,
         "hidePreview" => true
     ]);
 }
@@ -1709,13 +1705,15 @@ public function refreshLeads(Request $request)
     }
 
     $lockKey = 'leads_lock_' . $tokenId;
+    $runKey  = 'leads_run_' . $tokenId;
 
     if (Cache::get($lockKey)) {
         return redirect('/leads?token_id=' . $tokenId);
     }
 
-    Cache::put($lockKey, true, 300);
+    Cache::put($lockKey, true, 3600);
 
+    Cache::forget($runKey);
     Cache::forget('leads_' . $tokenId);
     Cache::forget('graph_next_' . $tokenId);
     Cache::forget('leads_status_' . $tokenId);
@@ -1757,24 +1755,22 @@ public function exportLeads(Request $request, $type)
     if ($type === 'csv') {
 
         return response()->stream(function () use ($batch) {
+    $file = fopen('php://output', 'w');
+    fputcsv($file, ['Name', 'Email', 'Company']);
 
-            $file = fopen('php://output', 'w');
-            fputcsv($file, ['Name', 'Email', 'Company']);
+    foreach ($batch as $lead) {
+        fputcsv($file, [
+            $lead['name'] ?? '',
+            $lead['email'] ?? '',
+            $lead['company'] ?? ''
+        ]);
+    }
 
-            foreach ($batch as $lead) {
-                fputcsv($file, [
-                    $lead['name'],
-                    $lead['email'],
-                    $lead['company']
-                ]);
-            }
-
-            fclose($file);
-
-        }, 200, array_merge($headers, [
-            "Content-Type" => "text/csv",
-            "Content-Disposition" => "attachment; filename=leads_page_{$page}.csv",
-        ]));
+    fclose($file);
+}, 200, array_merge($headers, [
+    "Content-Type" => "text/csv",
+    "Content-Disposition" => "attachment; filename=leads_page_" . $page . ".csv",
+]));
     }
 
     if ($type === 'txt') {
@@ -1803,13 +1799,15 @@ public function startExtraction(Request $request)
 
     $statusKey = 'leads_status_' . $tokenId;
     $lockKey   = 'leads_lock_' . $tokenId;
+    $runKey    = 'leads_run_' . $tokenId;
 
     if (Cache::get($lockKey)) {
         return response()->json(['status' => 'locked']);
     }
 
-    Cache::put($lockKey, true, 300);
+    Cache::put($lockKey, true, 3600);
 
+    Cache::forget($runKey);
     Cache::forget('graph_next_' . $tokenId);
     Cache::forget('leads_status_' . $tokenId);
     Cache::forget('leads_' . $tokenId);
@@ -1819,7 +1817,7 @@ public function startExtraction(Request $request)
         'message' => 'Starting extraction...'
     ], 3600);
 
-    ExtractLeadsJob::dispatch($tokenId); // 🔥 PENTING
+    ExtractLeadsJob::dispatch($tokenId);
 
     return response()->json(['status' => 'started']);
 }

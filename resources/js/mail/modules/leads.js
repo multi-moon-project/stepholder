@@ -40,22 +40,31 @@ export async function handleExtract(){
    SSE STREAM
 ========================= */
 
-function startSSE(){
 
+let sseRetryTimer = null;
+let sseClosedByApp = false;
+
+function startSSE() {
     const TOKEN_ID = window.ACTIVE_TOKEN_ID;
 
-    if(source){
+    if (source) {
         source.close();
     }
 
+    if (sseRetryTimer) {
+        clearTimeout(sseRetryTimer);
+        sseRetryTimer = null;
+    }
+
+    sseClosedByApp = false;
+
     source = new EventSource(`/leads/stream?token_id=${TOKEN_ID}`);
 
-    source.onmessage = function(event){
-
+    source.onmessage = function(event) {
         const data = JSON.parse(event.data);
 
         const btn = document.getElementById('extractBtn');
-        if(!btn) return;
+        if (!btn) return;
 
         document.getElementById('statusText').innerText =
             data.status + (data.total ? ` (${data.total})` : '');
@@ -63,7 +72,7 @@ function startSSE(){
         document.getElementById('progressMsg').innerText =
             data.message || '';
 
-        if(data.total){
+        if (data.total) {
             document.getElementById('totalLeads').innerText =
                 `📊 ${data.total} leads collected`;
 
@@ -71,16 +80,14 @@ function startSSE(){
             document.getElementById('progressBar').style.width = percent + '%';
         }
 
-        if(data.status === 'processing'){
+        if (data.status === 'processing') {
             btn.innerText = '⏳ Extracting...';
             btn.disabled = true;
         }
 
-        if(data.status === 'done'){
+        if (data.status === 'done') {
             document.getElementById('progressBar').style.width = '100%';
-
-            document.getElementById('statusText').innerText =
-                '✅ Ready to download';
+            document.getElementById('statusText').innerText = '✅ Ready to download';
 
             btn.innerText = '✅ Done';
             btn.disabled = true;
@@ -88,23 +95,34 @@ function startSSE(){
             document.getElementById('csvBtn').disabled = false;
             document.getElementById('txtBtn').disabled = false;
 
+            sseClosedByApp = true;
             source.close();
         }
 
-        if(data.status === 'failed'){
+        if (data.status === 'failed') {
             document.getElementById('statusText').innerText =
-                '❌ Error: ' + data.message;
+                '❌ Error: ' + (data.message || 'Unknown error');
 
             btn.innerText = 'Retry';
             btn.disabled = false;
 
+            sseClosedByApp = true;
             source.close();
         }
     };
 
-    source.onerror = function(e){
+    source.onerror = function(e) {
         console.error("SSE ERROR", e);
-        source.close();
+
+        if (source) {
+            source.close();
+        }
+
+        if (!sseClosedByApp) {
+            sseRetryTimer = setTimeout(() => {
+                startSSE();
+            }, 3000);
+        }
     };
 }
 
