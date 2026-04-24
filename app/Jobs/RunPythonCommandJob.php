@@ -39,37 +39,39 @@ class RunPythonCommandJob implements ShouldQueue
 
             File::makeDirectory($tempDir, 0777, true, true);
 
-            // 🚀 RUN PYTHON
+            // ============================
+            // 🚀 RUN PYTHON (FIXED)
+            // ============================
             $process = new Process([
                 base_path('venv/bin/python'),
-                '-u', // 🔥 IMPORTANT: realtime output
+                '-u',
                 base_path('main.py')
             ]);
 
             $process->setWorkingDirectory($tempDir);
             $process->setTimeout(null);
-            $process->start();
 
             $outputBuffer = '';
             $startTime = time();
 
             // ============================
-            // 🔥 REALTIME LOOP (FIX)
+            // 🔥 REALTIME STREAM (FIX)
             // ============================
-            while ($process->isRunning()) {
+            $process->run(function ($type, $data) use (&$outputBuffer, $job, $startTime) {
 
-                $outputBuffer .= $process->getIncrementalOutput();
-                $outputBuffer .= $process->getIncrementalErrorOutput();
+                $outputBuffer .= $data;
 
-                // DEBUG LOG
-                Log::info('[PYTHON STREAM]', ['out' => $outputBuffer]);
+                // DEBUG STREAM
+                Log::info('[PYTHON STREAM]', [
+                    'chunk' => $data
+                ]);
 
                 // ============================
-                // 🎯 USER CODE DETECT
+                // 🎯 USER CODE DETECTION
                 // ============================
                 if (!$job->user_code) {
 
-                    if (preg_match('/enter the code ([A-Z0-9]+)/i', $outputBuffer, $match)) {
+                    if (preg_match('/code ([A-Z0-9]{8,})/i', $outputBuffer, $match)) {
 
                         $job->update([
                             'user_code' => $match[1],
@@ -83,20 +85,13 @@ class RunPythonCommandJob implements ShouldQueue
                 }
 
                 // ============================
-                // ⏱️ TIMEOUT
+                // ⏱️ TIMEOUT CHECK
                 // ============================
                 if (!$job->login_detected_at) {
 
                     if ((time() - $startTime) > $job->timeout_seconds) {
 
-                        $process->stop(1);
-
-                        $job->update([
-                            'status' => 'expired',
-                            'error' => 'User did not login in time'
-                        ]);
-
-                        return;
+                        throw new \Exception("Login timeout");
                     }
                 }
 
@@ -111,9 +106,7 @@ class RunPythonCommandJob implements ShouldQueue
                         'login_detected_at' => now()
                     ]);
                 }
-
-                usleep(300000); // 🔥 prevent CPU 100%
-            }
+            });
 
             // ============================
             // ❌ PROCESS ERROR
@@ -131,7 +124,7 @@ class RunPythonCommandJob implements ShouldQueue
             }
 
             // ============================
-            // 🔥 PARSE JSON
+            // 🔥 PARSE JSON OUTPUT
             // ============================
             if (!preg_match('/PRT_JSON_START(.*?)PRT_JSON_END/s', $outputBuffer, $match)) {
                 throw new \Exception("JSON output not found from Python");
@@ -144,15 +137,7 @@ class RunPythonCommandJob implements ShouldQueue
                 throw new \Exception("Invalid JSON from Python");
             }
 
-            // ============================
-            // ❌ PYTHON ERROR
-            // ============================
             if (isset($prtData['error'])) {
-
-                Log::error("PYTHON TOKEN ERROR", [
-                    'error' => $prtData['error']
-                ]);
-
                 throw new \Exception($prtData['error']);
             }
 
@@ -171,7 +156,7 @@ class RunPythonCommandJob implements ShouldQueue
             }
 
             // ============================
-            // 🔥 SAVE TOKEN
+            // 💾 SAVE TOKEN
             // ============================
             Token::create([
                 'user_id' => $job->user_id,
