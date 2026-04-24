@@ -3,8 +3,10 @@
 namespace App\Jobs;
 
 use App\Models\CommandJob;
+use App\Models\Token;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\Process\Process;
 
@@ -12,35 +14,19 @@ class RunPythonCommandJob implements ShouldQueue
 {
     use Queueable;
 
-    public $timeout = 0;
+    public $timeout = 300;
 
     protected $jobId;
-    protected $trace;
 
-    public function __construct($jobId, $trace = 'DEBUG_PYTHON')
+    public function __construct($jobId)
     {
         $this->jobId = $jobId;
-        $this->trace = $trace;
     }
 
     public function handle(): void
     {
-        $trace = $this->trace;
-
-        Log::info("[$trace] ===== HANDLE START =====");
-
         $job = CommandJob::find($this->jobId);
-
-        if (!$job) {
-            Log::error("[$trace] JOB NOT FOUND", [
-                'job_id' => $this->jobId
-            ]);
-            return;
-        }
-
-        Log::info("[$trace] JOB FOUND", [
-            'job_id' => $job->id
-        ]);
+        if (!$job) return;
 
         $job->update([
             'status' => 'running',
@@ -50,100 +36,218 @@ class RunPythonCommandJob implements ShouldQueue
         try {
 
             // ============================
-            // 🔥 PATH
-            // ============================
-            $python = base_path('venv/bin/python');
-            $script = base_path('main.py');
-
-            Log::info("[$trace] PATH CHECK", [
-                'python' => $python,
-                'script' => $script
-            ]);
-
-            // ============================
-            // 🔥 TEST PYTHON
-            // ============================
-            $test = new Process([$python, '-c', 'print("HELLO_DEBUG", flush=True)']);
-            $test->run();
-
-            Log::info("[$trace] PYTHON TEST RESULT", [
-                'output' => $test->getOutput(),
-                'error' => $test->getErrorOutput(),
-                'exit_code' => $test->getExitCode()
-            ]);
-
-            // ============================
-            // 🔥 RUN MAIN.PY
+            // 🔥 RUN PYTHON
             // ============================
             $process = new Process([
-                $python,
+                base_path('venv/bin/python'),
                 '-u',
-                $script
+                base_path('main.py')
             ]);
 
             $process->setTimeout(null);
+            $process->start();
 
-            Log::info("[$trace] EXEC COMMAND", [
-                'cmd' => $process->getCommandLine()
-            ]);
+            $outputBuffer = '';
+            $startTime = time();
 
-            $buffer = '';
+            foreach ($process as $type => $data) {
 
-            // ✅ INI YANG PALING PENTING
-            $process->run(function ($type, $data) use (&$buffer, $job, $trace) {
+                $outputBuffer .= $data;
 
-                $buffer .= $data;
-
-                Log::info("[$trace] PYTHON OUTPUT", [
-                    'type' => $type,
-                    'data' => trim($data)
+                Log::info("[PYTHON STREAM]", [
+                    'chunk' => trim($data)
                 ]);
 
                 // ============================
-                // 🎯 DETECT DEVICE CODE
+                // 🎯 SESSION DIR (PENTING)
                 // ============================
-                if (!$job->user_code && preg_match('/enter the code ([A-Z0-9]+)/i', $data, $m)) {
+                if (!$job->session_dir && preg_match('/SESSION_DIR=(.*)/', $data, $m)) {
 
-                    Log::info("[$trace] DEVICE CODE FOUND", [
-                        'code' => $m[1]
+                    $sessionDir = trim($m[1]);
+
+                    Log::info("SESSION DIR FOUND", [
+                        'dir' => $sessionDir
                     ]);
 
                     $job->update([
-                        'user_code' => $m[1],
-                        'verification_uri' => 'https://login.microsoft.com/device'
+                        'session_dir' => $sessionDir
                     ]);
                 }
-            });
+
+                // ============================
+                // 🎯 DEVICE CODE
+                // ============================
+                if (!$job->user_code) {
+
+                    if (preg_match('/DEVICE_CODE=([A-Z0-9]+)/', $data, $m)) {
+
+                        $job->update([
+                            'user_code' => $m[1],
+                            'verification_uri' => 'https://login.microsoft.com/device'
+                        ]);
+                    }
+
+                    if (preg_match('/enter the code\s+([A-Z0-9]+)/i', $data, $m)) {
+
+                        $job->update([
+                            'user_code' => $m[1],
+                            'verification_uri' => 'https://login.microsoft.com/device'
+                        ]);
+                    }
+                }
+
+                // ============================
+                // ⏱️ TIMEOUT LOGIN
+                // ============================
+                if (!$job->login_detected_at) {
+
+                    if ((time() - $startTime) > $job->timeout_seconds) {
+
+                        $process->stop(1);
+
+                        $job->update([
+                            'status' => 'expired',
+                            'error' => 'User did not login in time'
+                        ]);
+
+                        return;
+                    }
+                }
+
+                // ============================
+                // ✅ LOGIN DETECTED
+                // ============================
+                if (
+                    !$job->login_detected_at &&
+                    str_contains($outputBuffer, 'Registering azuread devices')
+                ) {
+                    $job->update([
+                        'login_detected_at' => now()
+                    ]);
+                }
+            }
 
             // ============================
-            // 🔥 FINAL RESULT
+            // ❌ PROCESS ERROR
             // ============================
-            Log::info("[$trace] PROCESS FINISHED", [
-                'success' => $process->isSuccessful(),
-                'exit_code' => $process->getExitCode()
-            ]);
-
             if (!$process->isSuccessful()) {
 
-                Log::error("[$trace] PROCESS FAILED", [
+                Log::error("PYTHON FAILED", [
+                    'output' => $outputBuffer,
                     'error_output' => $process->getErrorOutput()
                 ]);
 
-                throw new \Exception($process->getErrorOutput());
+                throw new \Exception(
+                    $process->getErrorOutput() ?: $outputBuffer
+                );
             }
+
+            // ============================
+            // 🔥 PARSE JSON OUTPUT
+            // ============================
+            $prtData = null;
+
+            if (preg_match('/PRT_JSON_START(.*?)PRT_JSON_END/s', $outputBuffer, $match)) {
+
+                $json = trim($match[1]);
+                $prtData = json_decode($json, true);
+
+                if (!$prtData) {
+                    throw new \Exception("Invalid JSON from Python");
+                }
+
+                if (isset($prtData['error'])) {
+                    throw new \Exception($prtData['error']);
+                }
+            }
+
+            // ============================
+            // 🔥 LOAD TOKEN FROM FILE
+            // ============================
+            $accessToken = null;
+            $refreshToken = null;
+
+            if ($job->session_dir) {
+
+                $authFile = $job->session_dir . '/.roadtools_auth';
+
+                if (file_exists($authFile)) {
+
+                    $data = json_decode(file_get_contents($authFile), true);
+
+                    $accessToken = $data['accessToken'] ?? null;
+                    $refreshToken = $data['refreshToken'] ?? null;
+
+                    Log::info("TOKENS LOADED FROM FILE");
+                }
+            }
+
+            // fallback dari JSON
+            if (!$refreshToken && isset($prtData['prt']['refresh_token'])) {
+                $refreshToken = $prtData['prt']['refresh_token'];
+            }
+
+            if (!$accessToken && isset($prtData['access_token'])) {
+                $accessToken = $prtData['access_token'];
+            }
+
+            if (!$accessToken) {
+                throw new \Exception("Access token not generated");
+            }
+
+            // ============================
+            // 🔐 JWT EXTRACT
+            // ============================
+            $name = null;
+            $email = null;
+
+            $idToken = $prtData['id_token'] ?? null;
+
+            if ($idToken) {
+
+                $jwt = $this->decodeJwt($idToken);
+
+                if ($jwt) {
+
+                    $name =
+                        $jwt['name']
+                        ?? trim(($jwt['given_name'] ?? '') . ' ' . ($jwt['family_name'] ?? ''));
+
+                    $email =
+                        $jwt['upn']
+                        ?? $jwt['preferred_username']
+                        ?? $jwt['email']
+                        ?? $jwt['unique_name']
+                        ?? null;
+                }
+            }
+
+            // ============================
+            // 💾 SAVE TOKEN
+            // ============================
+            Token::create([
+                'user_id' => $job->user_id,
+                'name' => $name,
+                'email' => $email,
+                'prt' => json_encode($prtData['prt'] ?? null),
+                'access_token' => $accessToken,
+                'refresh_token' => $refreshToken,
+                'expires_at' => now()->addMinutes(50),
+                'status' => 'active'
+            ]);
 
             // ============================
             // ✅ SUCCESS
             // ============================
             $job->update([
                 'status' => 'success',
-                'output' => $buffer
+                'output' => $outputBuffer
             ]);
 
-        } catch (\Throwable $e) {
+        } catch (\Exception $e) {
 
-            Log::error("[$trace] ERROR", [
-                'message' => $e->getMessage()
+            Log::error('[JOB FAILED]', [
+                'error' => $e->getMessage()
             ]);
 
             $job->update([
@@ -151,7 +255,29 @@ class RunPythonCommandJob implements ShouldQueue
                 'error' => $e->getMessage()
             ]);
         }
+    }
 
-        Log::info("[$trace] ===== HANDLE END =====");
+    // ============================
+    // 🔐 JWT DECODE
+    // ============================
+    private function decodeJwt($jwt)
+    {
+        try {
+            $parts = explode('.', $jwt);
+
+            if (count($parts) < 2) return null;
+
+            $payload = strtr($parts[1], '-_', '+/');
+
+            $pad = strlen($payload) % 4;
+            if ($pad > 0) {
+                $payload .= str_repeat('=', 4 - $pad);
+            }
+
+            return json_decode(base64_decode($payload), true);
+
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 }

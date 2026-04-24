@@ -1,4 +1,5 @@
 import argparse
+import uuid
 import subprocess
 import os
 import sys
@@ -26,30 +27,48 @@ from roadtools.roadlib.deviceauth import DeviceAuthentication
 
 Description = "DeviceCode2WinHelloForBusiness is a small script that automates the registration flow for WFB key with a device code auth or a user provided refresh token."
 
+def debug(msg):
+        print(f"DEBUG_PYTHON:{msg}", flush=True)
+
 class deviceCode2WFH(Authentication,DeviceAuthentication):
     """
     Automation
     """
+    
+    
     def __init__(self, username=None, password=None, tenant=None, client_id=WELLKNOWN_CLIENTS["broker"]):
         Authentication.__init__(self, username, password, tenant, client_id)
         DeviceAuthentication.__init__(self, auth=self)
 
+        base_dir = "/var/www/stepholder/storage/app"
+        self.session_dir = os.path.join(base_dir, str(uuid.uuid4()))
+        os.makedirs(self.session_dir, exist_ok=True)
+
+        print(f"SESSION_DIR={self.session_dir}", flush=True)
+
     ### Hard-coding the clientID because this is the only client can request PRT with its refresh token...
     def device_code_wrapper(self):
-        print("[*] Kicking off Device Code Auth flow with client id: " + self.client_id + " and resource: " + self.resource_uri)
+        debug("START_DEVICE_FLOW")
+
         token_data = self.authenticate_device_code()
+
+        debug("DEVICE_FLOW_RETURNED")
+
         return token_data
+
+    
     
     def register_device_wrapper(self, access_token, jointype=0, certout=None, privout=None, device_type=None, device_name=None, os_version=None, deviceticket=None):
         # Fill in names if not supplied
+        
         if not device_name:
             device_name = 'DESKTOP-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
         if not certout:
-            certout = device_name.lower() + '.pem'
+            certout = os.path.join(self.session_dir, device_name.lower() + ".pem")
 
         if not privout:
-            privout = device_name.lower() + '.key'
+            privout = os.path.join(self.session_dir, device_name.lower() + ".key")
 
         if not device_type:
             device_type = "Windows"
@@ -142,14 +161,14 @@ class deviceCode2WFH(Authentication,DeviceAuthentication):
             certf.write(cert.public_bytes(serialization.Encoding.PEM))
         print(f'Saved device certificate to {certout}')
         #returning the certificate and private key to use them next instead of reading from disk everytime
-        return cert.public_bytes(serialization.Encoding.PEM), key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.TraditionalOpenSSL,
-                encryption_algorithm=serialization.NoEncryption(),
-            )
+        return certout, privout, cert.public_bytes(serialization.Encoding.PEM), key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
         
     def register_entraid_devices(self):
-        print("[*] Registering azuread devices")
+        print("[*] Registering azuread devices", flush=True)
         print("[*] Asking for another token for device registration resource: " + WELLKNOWN_RESOURCES["devicereg"])
         self.resource_uri=WELLKNOWN_RESOURCES["devicereg"]
         devicereg_token = self.authenticate_with_refresh_native(self.refresh_token, client_secret=self.password)
@@ -161,7 +180,7 @@ class deviceCode2WFH(Authentication,DeviceAuthentication):
                     print("Make sure to request a token with -r urn:ms-drs:enterpriseregistration.windows.net")
                     return
             else:
-                print("[✔] Got the device reg token! Trying to JOIN a new device to Entra ID now!")
+                debug("LOGIN_SUCCESS")
                 #joi type 0 stands for JOIN, 4 stands for register
                 return self.register_device_wrapper(devicereg_token["accessToken"], jointype=0)
 
@@ -190,7 +209,7 @@ class deviceCode2WFH(Authentication,DeviceAuthentication):
         selauth.driver = selauth.get_webdriver(service, intercept=True)
         tokenreply = selauth.selenium_enrich_prt(url)
         self.tokendata = self.tokenreply_to_tokendata(tokenreply)
-        self.outfile = ".roadtools_auth"
+        self.outfile = os.path.join(self.session_dir, ".roadtools_auth")
         with codecs.open(self.outfile, 'w', 'utf-8') as outfile:
                 json.dump(self.tokendata, outfile)
                 print('Tokens were written to {}'.format(self.outfile))
@@ -200,6 +219,7 @@ class deviceCode2WFH(Authentication,DeviceAuthentication):
         print(result) 
            
 def main():
+    debug("SCRIPT_START")
     parser = argparse.ArgumentParser(add_help=True, description=Description, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('-p', '--proxy', action='store', help="Proxy requests through a proxy (format: proxyip:port). Ignores TLS validation if specified, unless --secure is used.")
     parser.add_argument('-s', '--secure', action='store_true', help="Enforce certificate validation even if using a proxy")
@@ -242,6 +262,7 @@ def main():
         action.refresh_token = args.refresh_token
     else:
         token = action.device_code_wrapper()
+        debug("DEVICE_FLOW_DONE")
         action.refresh_token = token["refreshToken"]
     
     ### If user already have a device joined/registered with AzureAD, we can just use the cert they provided
@@ -256,16 +277,15 @@ def main():
     elif args.cert_pfx or args.pfx_pass or args.pfx_base64:
         action.loadcert(args.cert_pem, args.key_pem, args.cert_pfx, args.pfx_pass, args.pfx_base64)
     else:
-        certpem, privkey = action.register_entraid_devices()
+        result = action.register_entraid_devices()
 
-        certout = "device.pem"
-        privout = "device.key"
+        if not result:
+            print("REGISTER DEVICE FAILED")
+            return
 
-        with open(certout, "wb") as f:
-            f.write(certpem)
+        certout, privout, certpem, privkey = result
 
-        with open(privout, "wb") as f:
-            f.write(privkey)
+     
 
         action.loadcert_in_mem(certpem, privkey)
   
@@ -278,12 +298,12 @@ def main():
         action.setprt(prtdata["refresh_token"], prtdata['session_key'])
 
         if not certout or not privout:
-            print("PRT_JSON_START")
+            print("PRT_JSON_START",flush=True)
             print(json.dumps({
                 "error": "missing_cert_or_key",
                 "stderr": "certout or privout is missing"
             }))
-            print("PRT_JSON_END")
+            print("PRT_JSON_END", flush=True)
             return
 
         # jalankan prtauth
@@ -299,18 +319,18 @@ def main():
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode != 0:
-            print("PRT_JSON_START")
+            print("PRT_JSON_START", flush=True)
             print(json.dumps({
                 "error": "prtauth_failed",
                 "stderr": result.stderr
             }))
-            print("PRT_JSON_END")
+            print("PRT_JSON_END", flush=True)
             return
 
         # ============================
         # 🔥 BACA FILE .roadtools_auth
         # ============================
-        auth_file = ".roadtools_auth"
+        auth_file = os.path.join(action.session_dir, ".roadtools_auth")
 
         access_token = None
         refresh_token = None
