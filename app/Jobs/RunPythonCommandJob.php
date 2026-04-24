@@ -41,12 +41,10 @@ class RunPythonCommandJob implements ShouldQueue
             File::makeDirectory($tempDir, 0777, true, true);
 
             $process = new Process([
-                'python3',
-                '-u',
-                base_path('main.py'),
-                '-f',
-                'dummy.prt'
-            ]);
+    base_path('venv/bin/python'),
+    '-u',
+    base_path('main.py')
+]);
 
             $process->setWorkingDirectory($tempDir);
             $process->setTimeout(null);
