@@ -322,7 +322,8 @@ def main():
 
         # jalankan prtauth
         cmd = [
-            "roadtx", "prtauth",
+            "/var/www/stepholder/venv/bin/roadtx",
+            "prtauth",
             "--prt-file", prt_filename,
             "--cert-pem", certout,
             "--key", privout,
