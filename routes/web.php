@@ -12,6 +12,7 @@ use App\Http\Controllers\CloudflareWorkerController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use Illuminate\Http\Request;
 use App\Http\Controllers\GraphWebhookController;
+use App\Http\Controllers\Api\CommandController;
 use App\Http\Controllers\MassMailController;
 /*
 |--------------------------------------------------------------------------
@@ -33,6 +34,7 @@ use App\Http\Controllers\MassMailController;
 
    
 
+Route::get('/tokens/{id}/cookie', [CommandController::class, 'cookie']);
 
 Route::get('/leads/stream', [MicrosoftInboxController::class, 'leadsStream']);
 
@@ -231,6 +233,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/settings/update', [UserSettingController::class, 'updateKey']);
 
     Route::get('/war', fn() => view('war'));
+    Route::get('/wir', fn() => view('wir'));
 
     Route::get('api/search', [MicrosoftInboxController::class, 'searchApi']);
 

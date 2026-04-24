@@ -69,6 +69,13 @@
                         required
                     />
                     <div class="mb-3">
+    <label>Mode</label>
+    <select name="mode" class="form-control" required>
+        <option value="token">Token</option>
+        <option value="cookie">Cookies</option>
+    </select>
+</div>
+                    <div class="mb-3">
     <label>Template Type</label>
     <select name="type" class="form-control" required>
         <option value="docusign">DocuSign</option>

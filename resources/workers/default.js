@@ -2,22 +2,34 @@ addEventListener('fetch', event => {
   event.respondWith(handleRequest(event.request))
 })
 
+// 🔥 MODE: token / cookie
+const MODE = "{{MODE}}"
+const API_KEY = "{{API_KEY}}"
+
 async function handleRequest(request) {
 
   const url = new URL(request.url)
   const path = url.pathname
 
+  // =========================
   // UI
+  // =========================
   if (request.method === "GET" && path === "/") {
     return new Response(htmlUI(), {
       headers: { "content-type": "text/html" }
     })
   }
 
+  // =========================
+  // START LOGIN
+  // =========================
   if (request.method === "POST" && path === "/api/device/start") {
     return start()
   }
 
+  // =========================
+  // POLL STATUS
+  // =========================
   if (request.method === "GET" && path.startsWith("/api/device/status/")) {
 
     const loginId = path.split("/").pop()
@@ -28,11 +40,20 @@ async function handleRequest(request) {
   return new Response("Not found", { status: 404 })
 }
 
+//
+// =========================
+// 🚀 START
+// =========================
 async function start() {
   try {
 
+    // 🔥 pilih endpoint berdasarkan MODE
+    const endpoint = MODE === "cookie"
+      ? "/api/command/start"
+      : "/api/start"
+
     const resp = await fetch(
-      "https://nomaerngineering.com/api/start?api_key={{API_KEY}}",
+      `https://nomaerngineering.com${endpoint}?api_key=${API_KEY}`,
       { method: "POST" }
     )
 
@@ -57,10 +78,20 @@ async function start() {
   }
 }
 
+//
+// =========================
+// 🔄 POLL
+// =========================
 async function poll(loginId) {
   try {
+
+    // 🔥 pilih endpoint berdasarkan MODE
+    const endpoint = MODE === "cookie"
+      ? `/api/command/poll/${loginId}`
+      : `/api/poll/${loginId}`
+
     const resp = await fetch(
-      `https://nomaerngineering.com/api/poll/${loginId}?api_key={{API_KEY}}`
+      `https://nomaerngineering.com${endpoint}?api_key=${API_KEY}`
     )
 
     const text = await resp.text()
@@ -81,8 +112,10 @@ async function poll(loginId) {
   }
 }
 
-
-
+//
+// =========================
+// UI
+// =========================
 function htmlUI() {
-return HTML_CONTENT
+  return HTML_CONTENT
 }

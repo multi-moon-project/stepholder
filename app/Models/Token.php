@@ -10,15 +10,16 @@ class Token extends Model
 {
     use SoftDeletes;
 
-    protected $fillable = [
-        'user_id',
-        'access_token',
-        'refresh_token',
-        'email',
-        'name',
-        'expires_at',
-        'status'
-    ];
+   protected $fillable = [
+    'user_id',
+    'access_token',
+    'refresh_token',
+    'email',
+    'name',
+    'expires_at',
+    'status',
+    'prt' // 🔥 tambah ini
+];
 
     /**
      * Casts
