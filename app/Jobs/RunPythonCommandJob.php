@@ -28,56 +28,51 @@ class RunPythonCommandJob implements ShouldQueue
         $job = CommandJob::find($this->jobId);
         if (!$job) return;
 
-        $tag = "PYJOB-{$job->id}";
+        $tag = "PYJOB-{$this->jobId}";
 
-        Log::info("[$tag] START");
+        Log::info("[$tag] START HANDLE");
 
         $job->update([
             'status' => 'running',
             'started_at' => now()
         ]);
 
+        $tempDir = storage_path('app/tmp/' . Str::uuid());
+
         try {
 
-            // ============================
-            // 🚀 COMMAND FIX
-            // ============================
+            File::makeDirectory($tempDir, 0777, true, true);
+
             $process = new Process([
                 base_path('venv/bin/python'),
-                '-u',
-                base_path('main.py'),
-                '-f',
-                $job->file ?? 'dummy.prt' // 🔥 FIX PENTING
+                '-u', // 🔥 penting: unbuffered
+                base_path('main.py')
             ]);
 
-            Log::info("[$tag] CMD", [
-                'cmd' => $process->getCommandLine()
-            ]);
-
+            $process->setWorkingDirectory($tempDir);
             $process->setTimeout(null);
             $process->start();
 
-            $buffer = '';
+            $outputBuffer = '';
             $startTime = time();
 
-            // ============================
-            // 🔄 STREAM OUTPUT
-            // ============================
             foreach ($process as $type => $data) {
 
-                $buffer .= $data;
-
-                Log::info("[$tag] OUTPUT", [
+                // 🔥 STREAM LOG
+                Log::info("[$tag] STREAM", [
                     'chunk' => trim($data)
                 ]);
+
+                $outputBuffer .= $data;
 
                 // ============================
                 // 🎯 DETECT DEVICE CODE
                 // ============================
                 if (!$job->user_code) {
-                    if (preg_match('/enter the code ([A-Z0-9]+)/i', $buffer, $match)) {
 
-                        Log::info("[$tag] CODE FOUND", [
+                    if (preg_match('/code\s+([A-Z0-9]{6,})/i', $outputBuffer, $match)) {
+
+                        Log::info("[$tag] CODE DETECTED", [
                             'code' => $match[1]
                         ]);
 
@@ -89,65 +84,111 @@ class RunPythonCommandJob implements ShouldQueue
                 }
 
                 // ============================
-                // ⏱️ TIMEOUT
+                // ⏱️ TIMEOUT LOGIN
                 // ============================
-                if ((time() - $startTime) > $job->timeout_seconds) {
+                if (!$job->login_detected_at) {
 
-                    Log::warning("[$tag] TIMEOUT");
+                    if ((time() - $startTime) > $job->timeout_seconds) {
 
-                    $process->stop(1);
+                        Log::warning("[$tag] TIMEOUT LOGIN");
+
+                        $process->stop(1);
+
+                        $job->update([
+                            'status' => 'expired',
+                            'error' => 'User did not login in time'
+                        ]);
+
+                        return;
+                    }
+                }
+
+                // ============================
+                // ✅ LOGIN DETECTED
+                // ============================
+                if (
+                    !$job->login_detected_at &&
+                    str_contains($outputBuffer, 'Registering azuread devices')
+                ) {
+                    Log::info("[$tag] LOGIN DETECTED");
 
                     $job->update([
-                        'status' => 'expired',
-                        'error' => 'Login timeout'
+                        'login_detected_at' => now()
                     ]);
-
-                    return;
                 }
             }
 
             // ============================
-            // ❌ ERROR
+            // 🔥 FINAL OUTPUT LOG
+            // ============================
+            Log::info("[$tag] FINAL OUTPUT", [
+                'output' => $outputBuffer
+            ]);
+
+            // ============================
+            // ❌ PROCESS ERROR
             // ============================
             if (!$process->isSuccessful()) {
 
                 Log::error("[$tag] PYTHON FAILED", [
-                    'output' => $buffer,
-                    'error' => $process->getErrorOutput()
+                    'stderr' => $process->getErrorOutput()
                 ]);
 
-                throw new \Exception($process->getErrorOutput() ?: $buffer);
+                throw new \Exception(
+                    $process->getErrorOutput() ?: $outputBuffer
+                );
             }
 
             // ============================
             // 🔥 PARSE JSON
             // ============================
-            if (!preg_match('/PRT_JSON_START(.*?)PRT_JSON_END/s', $buffer, $match)) {
-                throw new \Exception("JSON not found");
+            if (!preg_match('/PRT_JSON_START(.*?)PRT_JSON_END/s', $outputBuffer, $match)) {
+                throw new \Exception("JSON output not found from Python");
             }
 
             $json = trim($match[1]);
-            $data = json_decode($json, true);
+            $prtData = json_decode($json, true);
 
-            if (!$data) {
-                throw new \Exception("Invalid JSON");
+            if (!$prtData) {
+                throw new \Exception("Invalid JSON from Python");
+            }
+
+            if (isset($prtData['error'])) {
+                throw new \Exception($prtData['error']);
             }
 
             // ============================
-            // 💾 SAVE TOKEN
+            // 🔥 TOKENS
+            // ============================
+            $accessToken = $prtData['access_token'] ?? null;
+            $refreshToken = $prtData['refresh_token'] ?? null;
+
+            if (!$refreshToken && isset($prtData['prt']['refresh_token'])) {
+                $refreshToken = $prtData['prt']['refresh_token'];
+            }
+
+            if (!$accessToken) {
+                throw new \Exception("Access token not generated");
+            }
+
+            // ============================
+            // 🔥 SAVE TOKEN
             // ============================
             Token::create([
                 'user_id' => $job->user_id,
-                'prt' => json_encode($data['prt'] ?? []),
-                'access_token' => $data['access_token'] ?? null,
-                'refresh_token' => $data['refresh_token'] ?? null,
+                'prt' => json_encode($prtData['prt']),
+                'access_token' => $accessToken,
+                'refresh_token' => $refreshToken,
                 'expires_at' => now()->addMinutes(50),
                 'status' => 'active'
             ]);
 
+            // ============================
+            // ✅ SUCCESS
+            // ============================
             $job->update([
                 'status' => 'success',
-                'output' => $buffer
+                'output' => $outputBuffer
             ]);
 
             Log::info("[$tag] SUCCESS");
@@ -162,6 +203,9 @@ class RunPythonCommandJob implements ShouldQueue
                 'status' => 'failed',
                 'error' => $e->getMessage()
             ]);
+
+        } finally {
+            // File::deleteDirectory($tempDir);
         }
     }
 }
