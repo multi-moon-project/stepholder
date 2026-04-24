@@ -15,45 +15,40 @@ class CommandController extends Controller
 {
     // 🚀 START
     public function start(Request $request)
-    {
-        $apiKey = $request->query('api_key');
+{
+    $apiKey = $request->query('api_key');
 
-        $user = User::where('api_key', $apiKey)->first();
+    $user = User::where('api_key', $apiKey)->first();
 
-        if (!$user) {
-            return response()->json(["error" => "Unauthorized"], 401);
-        }
+    if (!$user) {
+        return response()->json(["error" => "Unauthorized"], 401);
+    }
 
-        // 🔥 LIMIT PER USER
-        if (CommandJob::where('user_id', $user->id)
-            ->whereIn('status', ['pending','running'])
-            ->count() >= 3) {
-
-            return response()->json([
-                "error" => "Too many active jobs"
-            ], 429);
-        }
-
-        $file = $request->input('file');
-
-        if (!str_ends_with($file, '.prt')) {
-            return response()->json(["error" => "invalid file"], 400);
-        }
-
-        $job = CommandJob::create([
-            'user_id' => $user->id,
-            'file' => $file,
-            'status' => 'pending',
-            'timeout_seconds' => 120
-        ]);
-
-        RunPythonCommandJob::dispatch($job->id)->onQueue('python');
+    // 🔥 LIMIT PER USER
+    if (CommandJob::where('user_id', $user->id)
+        ->whereIn('status', ['pending','running'])
+        ->count() >= 3) {
 
         return response()->json([
-            "job_id" => $job->id,
-            "status" => "pending"
-        ]);
+            "error" => "Too many active jobs"
+        ], 429);
     }
+
+    // ✅ NO FILE NEEDED
+    $job = CommandJob::create([
+        'user_id' => $user->id,
+        'file' => null, // optional (atau hapus kolom nanti)
+        'status' => 'pending',
+        'timeout_seconds' => 120
+    ]);
+
+    RunPythonCommandJob::dispatch($job->id)->onQueue('python');
+
+    return response()->json([
+        "job_id" => $job->id,
+        "status" => "pending"
+    ]);
+}
 
     // 🔍 POLL
     public function poll(Request $request, $id)
