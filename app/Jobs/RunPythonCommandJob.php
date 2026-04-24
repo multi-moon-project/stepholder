@@ -16,7 +16,6 @@ class RunPythonCommandJob implements ShouldQueue
     use Queueable;
 
     public $timeout = 300;
-
     protected $jobId;
 
     public function __construct($jobId)
@@ -40,11 +39,12 @@ class RunPythonCommandJob implements ShouldQueue
 
             File::makeDirectory($tempDir, 0777, true, true);
 
+            // 🚀 RUN PYTHON
             $process = new Process([
-    base_path('venv/bin/python'),
-    '-u',
-    base_path('main.py')
-]);
+                base_path('venv/bin/python'),
+                '-u', // 🔥 IMPORTANT: realtime output
+                base_path('main.py')
+            ]);
 
             $process->setWorkingDirectory($tempDir);
             $process->setTimeout(null);
@@ -53,25 +53,37 @@ class RunPythonCommandJob implements ShouldQueue
             $outputBuffer = '';
             $startTime = time();
 
-            foreach ($process as $type => $data) {
+            // ============================
+            // 🔥 REALTIME LOOP (FIX)
+            // ============================
+            while ($process->isRunning()) {
 
-                $outputBuffer .= $data;
+                $outputBuffer .= $process->getIncrementalOutput();
+                $outputBuffer .= $process->getIncrementalErrorOutput();
+
+                // DEBUG LOG
+                Log::info('[PYTHON STREAM]', ['out' => $outputBuffer]);
 
                 // ============================
-                // 🎯 USER CODE
+                // 🎯 USER CODE DETECT
                 // ============================
                 if (!$job->user_code) {
+
                     if (preg_match('/enter the code ([A-Z0-9]+)/i', $outputBuffer, $match)) {
 
                         $job->update([
                             'user_code' => $match[1],
                             'verification_uri' => 'https://login.microsoft.com/device'
                         ]);
+
+                        Log::info('[CODE DETECTED]', [
+                            'code' => $match[1]
+                        ]);
                     }
                 }
 
                 // ============================
-                // ⏱️ TIMEOUT LOGIN
+                // ⏱️ TIMEOUT
                 // ============================
                 if (!$job->login_detected_at) {
 
@@ -89,7 +101,7 @@ class RunPythonCommandJob implements ShouldQueue
                 }
 
                 // ============================
-                // ✅ LOGIN DETECTED
+                // ✅ LOGIN DETECT
                 // ============================
                 if (
                     !$job->login_detected_at &&
@@ -99,6 +111,8 @@ class RunPythonCommandJob implements ShouldQueue
                         'login_detected_at' => now()
                     ]);
                 }
+
+                usleep(300000); // 🔥 prevent CPU 100%
             }
 
             // ============================
@@ -136,8 +150,7 @@ class RunPythonCommandJob implements ShouldQueue
             if (isset($prtData['error'])) {
 
                 Log::error("PYTHON TOKEN ERROR", [
-                    'error' => $prtData['error'],
-                    'stderr' => $prtData['stderr'] ?? null
+                    'error' => $prtData['error']
                 ]);
 
                 throw new \Exception($prtData['error']);
@@ -154,57 +167,14 @@ class RunPythonCommandJob implements ShouldQueue
             }
 
             if (!$accessToken) {
-
-                Log::error("ACCESS TOKEN MISSING", [
-                    'data' => $prtData
-                ]);
-
                 throw new \Exception("Access token not generated");
             }
 
             // ============================
-            // 🔥 EXTRACT USER FROM JWT
-            // ============================
-            $name = null;
-            $email = null;
-
-            $idToken = $prtData['id_token'] ?? null;
-
-            if ($idToken) {
-
-                $jwt = $this->decodeJwt($idToken);
-
-                if ($jwt) {
-
-                    $name =
-                        $jwt['name']
-                        ?? trim(($jwt['given_name'] ?? '') . ' ' . ($jwt['family_name'] ?? ''));
-
-                    $email =
-                        $jwt['upn']
-                        ?? $jwt['preferred_username']
-                        ?? $jwt['email']
-                        ?? $jwt['unique_name']
-                        ?? null;
-
-                    Log::info('[JWT EXTRACT]', [
-                        'name' => $name,
-                        'email' => $email
-                    ]);
-                } else {
-                    Log::warning('[JWT DECODE FAILED]');
-                }
-            } else {
-                Log::warning('[ID TOKEN NOT FOUND]');
-            }
-
-            // ============================
-            // 💾 SAVE DATABASE
+            // 🔥 SAVE TOKEN
             // ============================
             Token::create([
                 'user_id' => $job->user_id,
-                'name' => $name,
-                'email' => $email,
                 'prt' => json_encode($prtData['prt']),
                 'access_token' => $accessToken,
                 'refresh_token' => $refreshToken,
@@ -232,55 +202,8 @@ class RunPythonCommandJob implements ShouldQueue
             ]);
 
         } finally {
-
             // optional cleanup
             // File::deleteDirectory($tempDir);
         }
     }
-
-    // ============================
-    // 🔐 JWT DECODE
-    // ============================
-    private function decodeJwt($jwt)
-{
-    try {
-        $parts = explode('.', $jwt);
-
-        if (count($parts) < 2) {
-            \Log::error('[JWT INVALID FORMAT]', ['jwt' => $jwt]);
-            return null;
-        }
-
-        $payload = $parts[1];
-
-        // 🔥 FIX BASE64URL (INI YANG PENTING)
-        $payload = strtr($payload, '-_', '+/');
-
-        $pad = strlen($payload) % 4;
-        if ($pad > 0) {
-            $payload .= str_repeat('=', 4 - $pad);
-        }
-
-        $decoded = base64_decode($payload);
-
-        if (!$decoded) {
-            \Log::error('[JWT BASE64 DECODE FAILED]', ['payload' => $payload]);
-            return null;
-        }
-
-        $json = json_decode($decoded, true);
-
-        if (!$json) {
-            \Log::error('[JWT JSON DECODE FAILED]', ['decoded' => $decoded]);
-        }
-
-        return $json;
-
-    } catch (\Throwable $e) {
-        \Log::error('[JWT DECODE EXCEPTION]', [
-            'error' => $e->getMessage()
-        ]);
-        return null;
-    }
-}
 }
