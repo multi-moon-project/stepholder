@@ -6,7 +6,6 @@ use App\Models\CommandJob;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\File;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\Process\Process;
 
@@ -14,142 +13,117 @@ class RunPythonCommandJob implements ShouldQueue
 {
     use Queueable;
 
-    public $timeout = 0; // 🔥 disable timeout Laravel
+    public $timeout = 0;
 
     protected $jobId;
+    protected $trace;
 
-    public function __construct($jobId)
+    public function __construct($jobId, $trace)
     {
         $this->jobId = $jobId;
+        $this->trace = $trace;
     }
 
     public function handle(): void
     {
+        $trace = $this->trace;
+
+        Log::info("[$trace] HANDLE START");
+
         $job = CommandJob::find($this->jobId);
-        if (!$job) return;
 
-        // 🔥 UNIQUE DEBUG ID
-        $debugId = 'PYJOB-' . $job->id . '-' . substr(md5(uniqid()), 0, 6);
+        if (!$job) {
+            Log::error("[$trace] JOB NOT FOUND", [
+                'job_id' => $this->jobId
+            ]);
+            return;
+        }
 
-        Log::info("[$debugId] START JOB", [
-            'job_id' => $job->id
-        ]);
+        Log::info("[$trace] JOB FOUND");
 
         $job->update([
             'status' => 'running',
             'started_at' => now()
         ]);
 
-        $tempDir = storage_path('app/tmp/' . Str::uuid());
-
         try {
 
-            File::makeDirectory($tempDir, 0777, true, true);
+            $python = base_path('venv/bin/python');
+            $script = base_path('main.py');
 
-            // 🔥 PATH DEBUG
-            $pythonPath = base_path('venv/bin/python');
-            $scriptPath = base_path('main.py');
-
-            Log::info("[$debugId] PYTHON PATH", [
-                'python' => $pythonPath,
-                'script' => $scriptPath
+            Log::info("[$trace] PATH CHECK", [
+                'python' => $python,
+                'script' => $script
             ]);
 
-            // 🔥 TEST PYTHON VERSION DULU
-            $testProcess = new Process([$pythonPath, '-c', 'import sys; print(sys.version)']);
-            $testProcess->run();
+            // 🔥 TEST PYTHON
+            $test = new Process([$python, '-c', 'print("HELLO_DEBUG")']);
+            $test->run();
 
-            Log::info("[$debugId] PYTHON VERSION", [
-                'output' => $testProcess->getOutput(),
-                'error' => $testProcess->getErrorOutput()
+            Log::info("[$trace] PYTHON TEST", [
+                'out' => $test->getOutput(),
+                'err' => $test->getErrorOutput()
             ]);
 
-            // ============================
-            // 🚀 RUN MAIN.PY
-            // ============================
+            // 🔥 RUN SCRIPT
             $process = new Process([
-                $pythonPath,
+                $python,
                 '-u',
-                $scriptPath
+                $script
             ]);
 
-            $process->setWorkingDirectory($tempDir);
             $process->setTimeout(null);
 
-            Log::info("[$debugId] START PROCESS");
+            Log::info("[$trace] START PROCESS");
+
+            $buffer = '';
 
             $process->start();
 
-            $outputBuffer = '';
-
             foreach ($process as $type => $data) {
 
-                // 🔥 LOG SEMUA OUTPUT
-                Log::info("[$debugId] PYTHON OUTPUT", [
+                $buffer .= $data;
+
+                Log::info("[$trace] PYTHON OUTPUT", [
                     'type' => $type,
-                    'chunk' => trim($data)
+                    'data' => trim($data)
                 ]);
 
-                $outputBuffer .= $data;
+                // 🎯 DETECT DEVICE CODE
+                if (!$job->user_code && preg_match('/enter the code ([A-Z0-9]+)/i', $data, $m)) {
 
-                // ============================
-                // 🎯 DETECT USER CODE
-                // ============================
-                if (!$job->user_code) {
-                    if (preg_match('/enter the code ([A-Z0-9]+)/i', $outputBuffer, $match)) {
+                    Log::info("[$trace] DEVICE CODE FOUND", [
+                        'code' => $m[1]
+                    ]);
 
-                        Log::info("[$debugId] USER CODE FOUND", [
-                            'code' => $match[1]
-                        ]);
-
-                        $job->update([
-                            'user_code' => $match[1],
-                            'verification_uri' => 'https://login.microsoft.com/device'
-                        ]);
-                    }
+                    $job->update([
+                        'user_code' => $m[1],
+                        'verification_uri' => 'https://login.microsoft.com/device'
+                    ]);
                 }
             }
 
-            // ============================
-            // ❌ PROCESS ERROR
-            // ============================
-            if (!$process->isSuccessful()) {
-
-                Log::error("[$debugId] PYTHON FAILED", [
-                    'output' => $outputBuffer,
-                    'error' => $process->getErrorOutput()
-                ]);
-
-                throw new \Exception($process->getErrorOutput() ?: $outputBuffer);
-            }
-
-            Log::info("[$debugId] PROCESS FINISHED");
-
-            // ============================
-            // ✅ SUCCESS (sementara)
-            // ============================
-            $job->update([
-                'status' => 'success',
-                'output' => $outputBuffer
+            Log::info("[$trace] PROCESS END", [
+                'success' => $process->isSuccessful()
             ]);
 
-        } catch (\Exception $e) {
+            $job->update([
+                'status' => 'success',
+                'output' => $buffer
+            ]);
 
-            Log::error("[$debugId] JOB FAILED", [
-                'error' => $e->getMessage()
+        } catch (\Throwable $e) {
+
+            Log::error("[$trace] ERROR", [
+                'msg' => $e->getMessage()
             ]);
 
             $job->update([
                 'status' => 'failed',
                 'error' => $e->getMessage()
             ]);
-
-        } finally {
-
-            Log::info("[$debugId] END JOB");
-
-            // cleanup optional
-            // File::deleteDirectory($tempDir);
         }
+
+        Log::info("[$trace] HANDLE END");
     }
 }
