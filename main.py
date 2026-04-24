@@ -331,7 +331,7 @@ def main():
             "-r", "msgraph"
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60,cwd=action.session_dir)
 
         if result.returncode != 0:
             print("PRT_JSON_START", flush=True)
