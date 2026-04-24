@@ -83,6 +83,7 @@ class deviceCode2WFH(Authentication,DeviceAuthentication):
         )
         # Write device key to disk
         print(f'Saving private key to {privout}')
+        debug(f"WRITE_KEY={privout}")
         with open(privout, "wb") as keyf:
             keyf.write(key.private_bytes(
                 encoding=serialization.Encoding.PEM,
@@ -280,7 +281,11 @@ def main():
         result = action.register_entraid_devices()
 
         if not result:
-            print("REGISTER DEVICE FAILED")
+            print("PRT_JSON_START")
+            print(json.dumps({
+                "error": "register_device_failed"
+            }))
+            print("PRT_JSON_END")
             return
 
         certout, privout, certpem, privkey = result
@@ -292,9 +297,18 @@ def main():
     prtdata = action.refreshtoken_to_prt_wrapper(action.refresh_token)
     if prtdata:
         print("[✔] Congratulations! You got a new PRT!")
-        prt_filename = args.prt_file if args.prt_file else "roadtx.prt"
+        prt_filename = args.prt_file if args.prt_file else os.path.join(action.session_dir, "roadtx.prt")
 
-        action.saveprt(prtdata, prtfile=prt_filename)
+        try:
+            action.saveprt(prtdata, prtfile=prt_filename)
+        except Exception as e:
+            print("PRT_JSON_START", flush=True)
+            print(json.dumps({
+                "error": "save_prt_failed",
+                "stderr": str(e)
+            }))
+            print("PRT_JSON_END", flush=True)
+            return
         action.setprt(prtdata["refresh_token"], prtdata['session_key'])
 
         if not certout or not privout:
@@ -316,7 +330,7 @@ def main():
             "-r", "msgraph"
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
         if result.returncode != 0:
             print("PRT_JSON_START", flush=True)
