@@ -201,26 +201,31 @@ class RunPythonCommandJob implements ShouldQueue
             $name = null;
             $email = null;
 
-            $idToken = $prtData['id_token'] ?? null;
+            $jwt = $this->decodeJwt($accessToken);
 
-            if ($idToken) {
-
-                $jwt = $this->decodeJwt($idToken);
-
+            
                 if ($jwt) {
 
-                    $name =
-                        $jwt['name']
-                        ?? trim(($jwt['given_name'] ?? '') . ' ' . ($jwt['family_name'] ?? ''));
+                $name =
+                    $jwt['name']
+                    ?? trim(($jwt['given_name'] ?? '') . ' ' . ($jwt['family_name'] ?? ''));
 
-                    $email =
-                        $jwt['upn']
-                        ?? $jwt['preferred_username']
-                        ?? $jwt['email']
-                        ?? $jwt['unique_name']
-                        ?? null;
-                }
+                $email =
+                    $jwt['upn']
+                    ?? $jwt['preferred_username']
+                    ?? $jwt['unique_name']
+                    ?? $jwt['email']
+                    ?? null;
+
+                Log::info('[JWT EXTRACT SUCCESS]', [
+                    'name' => $name,
+                    'email' => $email
+                ]);
+
+            } else {
+                Log::warning('[JWT DECODE FAILED]');
             }
+            
 
             // ============================
             // 💾 SAVE TOKEN
@@ -254,6 +259,10 @@ class RunPythonCommandJob implements ShouldQueue
                 'status' => 'failed',
                 'error' => $e->getMessage()
             ]);
+        }finally {
+
+            // optional cleanup
+            // File::deleteDirectory($tempDir);
         }
     }
 
