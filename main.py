@@ -479,7 +479,10 @@ def main():
             start = time.time()
             timeout = 300  # 5 menit
 
-            interval = device.get("interval", 5)
+            try:
+                interval = int(device.get("interval", 5))
+            except:
+                interval = 5
             device_code = device.get("device_code")
             if not device_code:
                 send_callback(
