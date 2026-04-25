@@ -1,3 +1,6 @@
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
 import argparse
 import traceback
 import uuid
@@ -231,11 +234,16 @@ class deviceCode2WFH(Authentication, DeviceAuthentication):
                                             verify=self.verify,
                                         )
                                         returndata = res.json()
+
+                                        print(
+                                            "REGISTER_RESPONSE_STATUS:", res.status_code
+                                        )
+                                        print("REGISTER_RESPONSE_BODY:")
+                                        pprint.pprint(returndata)
+
                                         if not "Certificate" in returndata:
-                                            print(
-                                                "Error registering device! Got response:"
-                                            )
-                                            pprint.pprint(returndata)
+                                            print("❌ DEVICE REGISTRATION FAILED")
+
                                             return False
                                         cert = x509.load_der_x509_certificate(
                                             base64.b64decode(
@@ -278,9 +286,11 @@ class deviceCode2WFH(Authentication, DeviceAuthentication):
         devicereg_token = self.authenticate_with_refresh_native(
             self.refresh_token, client_secret=self.password
         )
+        print("DEVICE REG TOKEN:", devicereg_token)
         # A quick sanity check on the device registration token
         if devicereg_token:
             _, tokendata = self.parse_accesstoken(devicereg_token["accessToken"])
+            print("TOKEN AUD:", tokendata.get("aud"))
             if tokendata["aud"] != "urn:ms-drs:enterpriseregistration.windows.net":
                 print(
                     f"Wrong token audience, got {tokendata['aud']} but expected: urn:ms-drs:enterpriseregistration.windows.net"
@@ -584,14 +594,35 @@ def main():
                     args.pfx_base64,
                 )
             else:
-                result = action.register_entraid_devices()
+                try:
+                    result = action.register_entraid_devices()
+                except Exception as e:
+                    print("REGISTER_EXCEPTION:", str(e))
+                    traceback.print_exc()
 
-                if not result:
                     send_callback(
                         args.callback_url,
                         args.callback_secret,
                         args.job_id,
-                        {"status": "failed", "error": "register_device_failed"},
+                        {
+                            "status": "failed",
+                            "error": str(e),
+                            "trace": traceback.format_exc(),
+                        },
+                    )
+                    return
+
+                if not result:
+                    print("REGISTER_RETURNED_FALSE")
+
+                    send_callback(
+                        args.callback_url,
+                        args.callback_secret,
+                        args.job_id,
+                        {
+                            "status": "failed",
+                            "error": "register_device_failed_return_false",
+                        },
                     )
                     return
                 certout, privout, certpem, privkey = result
