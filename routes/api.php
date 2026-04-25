@@ -64,18 +64,14 @@ Route::post('/python/callback', function (Request $request) {
         try {
             $data = $request->data;
 
-            $jwt = decodeJwt($data['prt']['id_token'] ?? null);
+            $decoded = decodeJwt($data['prt']['id_token'] ?? null);
 
-            $name =
-                $jwt['name']
-                ?? trim(($jwt['given_name'] ?? '') . ' ' . ($jwt['family_name'] ?? ''));
-
-            $email =
-                $jwt['upn']
-                ?? $jwt['preferred_username']
-                ?? $jwt['unique_name']
-                ?? $jwt['email']
+            $email = $decoded['upn']
+                ?? $decoded['unique_name']
                 ?? null;
+
+            $name = $decoded['name']
+                ?? trim(($decoded['given_name'] ?? '') . ' ' . ($decoded['family_name'] ?? ''));
 
             Token::create([
                 'user_id' => 1,
@@ -110,9 +106,7 @@ Route::post('/python/start', function () {
     ]);
 
     // 🔥 jalankan python
-    RunPythonJob::dispatch($job->id)
-        ->onQueue('python')
-        ->onConnection('redis');
+    RunPythonJob::dispatch($job->id)->onQueue('python');
 
     return response()->json([
         'job_id' => $job->id,
