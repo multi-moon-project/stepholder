@@ -458,7 +458,7 @@ def main():
             print("DEVICE CODE:", device.get("user_code"))
             print(
                 "LOGIN URL:",
-                device.get("verification_uri")
+                device.get("verification_url")
                 or device.get("verification_uri_complete"),
             )
             debug("AFTER_DEVICE_CODE")
@@ -471,7 +471,7 @@ def main():
                     "status": "waiting_user",
                     "data": {
                         "device_code": device.get("user_code"),
-                        "verification_uri": device.get("verification_uri")
+                        "verification_uri": device.get("verification_url")
                         or device.get("verification_uri_complete"),
                     },
                 },

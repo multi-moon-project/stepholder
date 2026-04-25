@@ -5,6 +5,7 @@ use App\Http\Controllers\CoreSystemController;
 use App\Http\Controllers\Api\CommandController;
 use Illuminate\Support\Facades\Log;
 use App\Models\PythonJob;
+use App\Jobs\RunPythonJob;
 
 use App\Http\Controllers\Api\MicrosoftAuthController;
 use App\Http\Controllers\MicrosoftInboxController;
@@ -40,27 +41,57 @@ Route::post('/command/start', [CommandController::class, 'start']);
 Route::get('/command/poll/{id}', [CommandController::class, 'poll']);
 Route::post('/python/callback', function (Request $request) {
 
+    // 🔐 Validasi secret
     if ($request->header('X-Python-Secret') !== config('services.python.secret')) {
         return response()->json(['error' => 'unauthorized'], 403);
     }
 
+    // 🔍 Logging (penting untuk debug)
     Log::info('PYTHON CALLBACK', $request->all());
 
+    // 🔎 Cari job
     $job = PythonJob::find($request->job_id);
 
     if (!$job) {
         return response()->json(['error' => 'job not found'], 404);
     }
 
-    $job->update([
+    // 🔥 Update data secara aman
+    $updateData = [
         'status' => $request->status,
-        'result' => $request->status === 'done' ? $request->data : $job->result,
-        'error' => $request->status === 'failed' ? $request->error : $job->error,
-    ]);
+    ];
+
+    // ✅ simpan data jika ada (waiting_user / done)
+    if ($request->has('data')) {
+        $updateData['result'] = $request->data;
+    }
+
+    // ❌ simpan error jika gagal
+    if ($request->status === 'failed') {
+        $updateData['error'] = $request->error ?? 'unknown_error';
+    }
+
+    $job->update($updateData);
 
     return response()->json(['ok' => true]);
 })->name('python.callback');
 
+Route::get('/python/job/{id}', function ($id) {
+    return PythonJob::findOrFail($id);
+});
 
+Route::post('/python/start', function () {
 
+    $job = PythonJob::create([
+        'status' => 'pending'
+    ]);
+
+    // 🔥 jalankan python
+    RunPythonJob::dispatch($job->id)->onQueue('python');
+
+    return response()->json([
+        'job_id' => $job->id,
+        'status' => 'started'
+    ]);
+});
 
