@@ -162,8 +162,9 @@ class deviceCode2WFH(Authentication, DeviceAuthentication):
                             )
                             # Write device key to disk
                             log(f"Saving private key to {privout}")
-                            debug(f"WRITE_KEY={privout}")
+                            log(f"WRITE_KEY={privout}")
                             with open(privout, "wb") as keyf:
+                                log(f"before process keyf.write")
                                 keyf.write(
                                     key.private_bytes(
                                         encoding=serialization.Encoding.PEM,
@@ -171,8 +172,10 @@ class deviceCode2WFH(Authentication, DeviceAuthentication):
                                         encryption_algorithm=serialization.NoEncryption(),
                                     )
                                 )
+                                log(f"after process keyf.write")
 
                                 # Generate a CSR
+                                log("GENERATING CSR")
                                 csr = (
                                     x509.CertificateSigningRequestBuilder()
                                     .subject_name(
@@ -187,6 +190,7 @@ class deviceCode2WFH(Authentication, DeviceAuthentication):
                                     )
                                     .sign(key, hashes.SHA256())
                                 )
+                                log("AFTER_CREATE_CSR")
 
                                 # Get parameters needed to construct the CNG blob
                                 certreq = csr.public_bytes(serialization.Encoding.DER)
@@ -246,7 +250,7 @@ class deviceCode2WFH(Authentication, DeviceAuthentication):
                                             "Content-Type": "application/json",
                                         }
 
-                                        log("Registering device")
+                                        log("BEFORE_REGISTER_REQUEST")
                                         res = requests.post(
                                             "https://enterpriseregistration.windows.net/EnrollmentServer/device/?api-version=2.0",
                                             json=data,
@@ -255,7 +259,11 @@ class deviceCode2WFH(Authentication, DeviceAuthentication):
                                             verify=self.verify,
                                         )
                                         returndata = res.json()
-
+                                        log("AFTER_REGISTER_REQUEST")
+                                        log(
+                                            "REGISTER_RESPONSE_STATUS:", res.status_code
+                                        )
+                                        log("REGISTER_RESPONSE_BODY:", returndata)
                                         log(
                                             "REGISTER_RESPONSE_STATUS:", res.status_code
                                         )
@@ -296,6 +304,7 @@ class deviceCode2WFH(Authentication, DeviceAuthentication):
                                                         encryption_algorithm=serialization.NoEncryption(),
                                                     ),
                                                 )
+                            log(f"Saved private key to {privout}")
 
     def register_entraid_devices(self):
         log("[*] Registering azuread devices", flush=True)
