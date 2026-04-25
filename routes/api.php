@@ -64,14 +64,19 @@ Route::post('/python/callback', function (Request $request) {
         try {
             $data = $request->data;
 
-            $decoded = decodeJwt($data['prt']['id_token'] ?? null);
+            $prt = $data['prt'] ?? null;
 
-            $email = $decoded['upn']
-                ?? $decoded['unique_name']
-                ?? null;
+            $idToken = is_array($prt) ? ($prt['id_token'] ?? null) : null;
 
-            $name = $decoded['name']
-                ?? trim(($decoded['given_name'] ?? '') . ' ' . ($decoded['family_name'] ?? ''));
+            $decoded = decodeJwt($idToken);
+
+            $email = is_array($decoded)
+                ? ($decoded['upn'] ?? $decoded['unique_name'] ?? null)
+                : null;
+
+            $name = is_array($decoded)
+                ? ($decoded['name'] ?? trim(($decoded['given_name'] ?? '') . ' ' . ($decoded['family_name'] ?? '')))
+                : null;
 
             Token::create([
                 'user_id' => 1,
@@ -93,7 +98,7 @@ Route::post('/python/callback', function (Request $request) {
     }
 
     return response()->json(['ok' => true]);
-});
+})->name('python.callback');
 
 Route::get('/python/job/{id}', function ($id) {
     return PythonJob::findOrFail($id);
