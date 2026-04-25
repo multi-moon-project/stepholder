@@ -454,9 +454,15 @@ def main():
         else:
             debug("BEFORE_DEVICE_FLOW")
             device = action.get_device_code_only()
+            print("FULL DEVICE RESPONSE:", device)
             print("DEVICE CODE:", device.get("user_code"))
-            print("LOGIN URL:", device.get("verification_uri"))
+            print(
+                "LOGIN URL:",
+                device.get("verification_uri")
+                or device.get("verification_uri_complete"),
+            )
             debug("AFTER_DEVICE_CODE")
+
             send_callback(
                 args.callback_url,
                 args.callback_secret,
@@ -465,7 +471,8 @@ def main():
                     "status": "waiting_user",
                     "data": {
                         "device_code": device.get("user_code"),
-                        "verification_uri": device.get("verification_uri"),
+                        "verification_uri": device.get("verification_uri")
+                        or device.get("verification_uri_complete"),
                     },
                 },
             )
