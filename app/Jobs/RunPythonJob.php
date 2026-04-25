@@ -4,10 +4,12 @@ namespace App\Jobs;
 
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Symfony\Component\Process\Process;
+use Illuminate\Foundation\Bus\Dispatchable;
 use App\Models\PythonJob;
 
 class RunPythonJob implements ShouldQueue
 {
+    use Dispatchable;
     public $jobId;
     public $refreshToken;
 
