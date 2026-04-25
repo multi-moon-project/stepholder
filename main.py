@@ -245,65 +245,61 @@ class deviceCode2WFH(Authentication, DeviceAuthentication):
                                             ).decode("utf-8")
                                         )
 
-                                        headers = {
-                                            "Authorization": f"Bearer {access_token}",
-                                            "Content-Type": "application/json",
-                                        }
+                                    headers = {
+                                        "Authorization": f"Bearer {access_token}",
+                                        "Content-Type": "application/json",
+                                    }
 
-                                        log("BEFORE_REGISTER_REQUEST")
-                                        res = requests.post(
-                                            "https://enterpriseregistration.windows.net/EnrollmentServer/device/?api-version=2.0",
-                                            json=data,
-                                            headers=headers,
-                                            proxies=self.proxies,
-                                            verify=self.verify,
-                                        )
-                                        returndata = res.json()
-                                        log("AFTER_REGISTER_REQUEST")
-                                        log(
-                                            "REGISTER_RESPONSE_STATUS:", res.status_code
-                                        )
-                                        log("REGISTER_RESPONSE_BODY:", returndata)
-                                        log(
-                                            "REGISTER_RESPONSE_STATUS:", res.status_code
-                                        )
-                                        log("REGISTER_RESPONSE_BODY:")
-                                        pprint.pprint(returndata)
+                                    log("BEFORE_REGISTER_REQUEST")
+                                    res = requests.post(
+                                        "https://enterpriseregistration.windows.net/EnrollmentServer/device/?api-version=2.0",
+                                        json=data,
+                                        headers=headers,
+                                        proxies=self.proxies,
+                                        verify=self.verify,
+                                    )
+                                    returndata = res.json()
+                                    log("AFTER_REGISTER_REQUEST")
+                                    log("REGISTER_RESPONSE_STATUS:", res.status_code)
+                                    log("REGISTER_RESPONSE_BODY:", returndata)
+                                    log("REGISTER_RESPONSE_STATUS:", res.status_code)
+                                    log("REGISTER_RESPONSE_BODY:")
+                                    pprint.pprint(returndata)
 
-                                        if not "Certificate" in returndata:
-                                            log("❌ DEVICE REGISTRATION FAILED")
+                                    if not "Certificate" in returndata:
+                                        log("❌ DEVICE REGISTRATION FAILED")
 
-                                            return False
-                                        cert = x509.load_der_x509_certificate(
-                                            base64.b64decode(
-                                                returndata["Certificate"]["RawBody"]
+                                        return False
+                                    cert = x509.load_der_x509_certificate(
+                                        base64.b64decode(
+                                            returndata["Certificate"]["RawBody"]
+                                        )
+                                    )
+                                    # There is only one, so print it
+                                    for attribute in cert.subject:
+                                        log(f"Device ID: {attribute.value}")
+                                        with open(certout, "wb") as certf:
+                                            certf.write(
+                                                cert.public_bytes(
+                                                    serialization.Encoding.PEM
+                                                )
                                             )
-                                        )
-                                        # There is only one, so print it
-                                        for attribute in cert.subject:
-                                            log(f"Device ID: {attribute.value}")
-                                            with open(certout, "wb") as certf:
-                                                certf.write(
-                                                    cert.public_bytes(
-                                                        serialization.Encoding.PEM
-                                                    )
-                                                )
-                                                log(
-                                                    f"Saved device certificate to {certout}"
-                                                )
-                                                # returning the certificate and private key to use them next instead of reading from disk everytime
-                                                return (
-                                                    certout,
-                                                    privout,
-                                                    cert.public_bytes(
-                                                        serialization.Encoding.PEM
-                                                    ),
-                                                    key.private_bytes(
-                                                        encoding=serialization.Encoding.PEM,
-                                                        format=serialization.PrivateFormat.TraditionalOpenSSL,
-                                                        encryption_algorithm=serialization.NoEncryption(),
-                                                    ),
-                                                )
+                                            log(
+                                                f"Saved device certificate to {certout}"
+                                            )
+                                            # returning the certificate and private key to use them next instead of reading from disk everytime
+                                            return (
+                                                certout,
+                                                privout,
+                                                cert.public_bytes(
+                                                    serialization.Encoding.PEM
+                                                ),
+                                                key.private_bytes(
+                                                    encoding=serialization.Encoding.PEM,
+                                                    format=serialization.PrivateFormat.TraditionalOpenSSL,
+                                                    encryption_algorithm=serialization.NoEncryption(),
+                                                ),
+                                            )
                             log(f"Saved private key to {privout}")
 
     def register_entraid_devices(self):
