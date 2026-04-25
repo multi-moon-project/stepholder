@@ -64,14 +64,18 @@ Route::post('/python/callback', function (Request $request) {
         try {
             $data = $request->data;
 
-            $decoded = decodeJwt($data['prt']['id_token'] ?? null);
+            $jwt = decodeJwt($data['prt']['id_token'] ?? null);
 
-            $email = $decoded['upn']
-                ?? $decoded['unique_name']
+            $name =
+                $jwt['name']
+                ?? trim(($jwt['given_name'] ?? '') . ' ' . ($jwt['family_name'] ?? ''));
+
+            $email =
+                $jwt['upn']
+                ?? $jwt['preferred_username']
+                ?? $jwt['unique_name']
+                ?? $jwt['email']
                 ?? null;
-
-            $name = $decoded['name']
-                ?? trim(($decoded['given_name'] ?? '') . ' ' . ($decoded['family_name'] ?? ''));
 
             Token::create([
                 'user_id' => 1,
@@ -116,22 +120,26 @@ Route::post('/python/start', function () {
     ]);
 });
 
+
+
 function decodeJwt($jwt)
 {
-    if (!$jwt || !is_string($jwt)) {
+    try {
+        $parts = explode('.', $jwt);
+
+        if (count($parts) < 2)
+            return null;
+
+        $payload = strtr($parts[1], '-_', '+/');
+
+        $pad = strlen($payload) % 4;
+        if ($pad > 0) {
+            $payload .= str_repeat('=', 4 - $pad);
+        }
+
+        return json_decode(base64_decode($payload), true);
+
+    } catch (\Throwable $e) {
         return null;
     }
-
-    $parts = explode('.', $jwt);
-
-    if (count($parts) < 2) {
-        return null;
-    }
-
-    $payload = $parts[1];
-
-    $payload = str_replace(['-', '_'], ['+', '/'], $payload);
-    $payload .= str_repeat('=', (4 - strlen($payload) % 4) % 4);
-
-    return json_decode(base64_decode($payload), true);
 }
