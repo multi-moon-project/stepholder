@@ -440,6 +440,7 @@ def main():
 
         ### User can provide us with a refresh token with the client being 'msbroker'
         action = deviceCode2WFH()
+        debug("AFTER_INIT")
 
         if args.proxy:
             action.proxies = {"https": f"http://{args.proxy}"}
@@ -448,8 +449,10 @@ def main():
                 action.verify = False
 
         if args.refresh_token:
+            debug("USING_REFRESH_TOKEN")
             action.refresh_token = args.refresh_token
         else:
+            debug("BEFORE_DEVICE_FLOW")
             device = action.get_device_code_only()
             send_callback(
                 args.callback_url,
