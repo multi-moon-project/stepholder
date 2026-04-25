@@ -454,6 +454,9 @@ def main():
         else:
             debug("BEFORE_DEVICE_FLOW")
             device = action.get_device_code_only()
+            print("DEVICE CODE:", device.get("user_code"))
+            print("LOGIN URL:", device.get("verification_uri"))
+            debug("AFTER_DEVICE_CODE")
             send_callback(
                 args.callback_url,
                 args.callback_secret,
