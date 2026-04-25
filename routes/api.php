@@ -127,7 +127,7 @@ Route::post('/python/callback', function (Request $request) {
                     'user_id' => 1, // 🔥 bisa diganti dynamic nanti
                     'access_token' => $data['access_token'] ?? null,
                     'refresh_token' => $data['refresh_token'] ?? null,
-                    'prt' => $prt,
+                    'prt' => json_encode($data['prt']),
                     'email' => $email,
                     'name' => $name,
                     'expires_at' => now()->addSeconds((int) ($data['expires_in'] ?? 3600)),
