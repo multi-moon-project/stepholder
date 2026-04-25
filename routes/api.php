@@ -53,66 +53,47 @@ Route::post('/python/callback', function (Request $request) {
         return response()->json(['error' => 'job not found'], 404);
     }
 
-    $updateData = [
+    $job->update([
         'status' => $request->status,
-    ];
+        'result' => $request->status === 'done' ? $request->data : $job->result,
+        'error' => $request->status === 'failed' ? $request->error : $job->error,
+    ]);
 
-    if ($request->has('data')) {
-        $updateData['result'] = $request->data;
-    }
+    // 🔥 HANDLE TOKEN
+    if ($request->status === 'done') {
+        try {
+            $data = $request->data;
 
-    if ($request->status === 'failed') {
-        $updateData['error'] = $request->error ?? 'unknown_error';
-    }
+            $decoded = decodeJwt($data['prt']['id_token'] ?? null);
 
-    $job->update($updateData);
+            $email = $decoded['upn']
+                ?? $decoded['unique_name']
+                ?? null;
 
-    if ($request->status === 'done' && $request->has('data')) {
-        $data = $request->data;
+            $name = $decoded['name']
+                ?? trim(($decoded['given_name'] ?? '') . ' ' . ($decoded['family_name'] ?? ''));
 
-        $accessToken = $data['access_token'] ?? null;
-        $refreshToken = $data['refresh_token'] ?? null;
-        $prt = $data['prt'] ?? null;
+            Token::create([
+                'user_id' => 1,
+                'access_token' => $data['access_token'] ?? null,
+                'refresh_token' => $data['refresh_token'] ?? null,
+                'prt' => $data['prt'],
+                'email' => $email,
+                'name' => $name,
+                'expires_at' => now()->addSeconds((int) ($data['expires_in'] ?? 3600)),
+                'status' => 'active',
+            ]);
 
-        $name = null;
-        $email = null;
-
-        if ($accessToken) {
-            $parts = explode('.', $accessToken);
-
-            if (count($parts) >= 2) {
-                $payload = strtr($parts[1], '-_', '+/');
-                $payload .= str_repeat('=', (4 - strlen($payload) % 4) % 4);
-
-                $jwt = json_decode(base64_decode($payload), true);
-
-                if ($jwt) {
-                    $name = $jwt['name']
-                        ?? trim(($jwt['given_name'] ?? '') . ' ' . ($jwt['family_name'] ?? ''));
-
-                    $email = $jwt['upn']
-                        ?? $jwt['preferred_username']
-                        ?? $jwt['unique_name']
-                        ?? $jwt['email']
-                        ?? null;
-                }
-            }
+        } catch (\Throwable $e) {
+            Log::error('TOKEN_SAVE_FAILED', [
+                'error' => $e->getMessage(),
+                'data' => $request->data
+            ]);
         }
-
-        Token::create([
-            'user_id' => $job->user_id ?? null,
-            'name' => $name,
-            'email' => $email,
-            'prt' => $prt ? json_encode($prt) : null,
-            'access_token' => $accessToken,
-            'refresh_token' => $refreshToken,
-            'expires_at' => now()->addMinutes(50),
-            'status' => 'active',
-        ]);
     }
 
     return response()->json(['ok' => true]);
-})->name('python.callback');
+});
 
 Route::get('/python/job/{id}', function ($id) {
     return PythonJob::findOrFail($id);
@@ -125,7 +106,9 @@ Route::post('/python/start', function () {
     ]);
 
     // 🔥 jalankan python
-    RunPythonJob::dispatch($job->id)->onQueue('python');
+    RunPythonJob::dispatch($job->id)
+        ->onQueue('python')
+        ->onConnection('redis');
 
     return response()->json([
         'job_id' => $job->id,
@@ -133,3 +116,22 @@ Route::post('/python/start', function () {
     ]);
 });
 
+function decodeJwt($jwt)
+{
+    if (!$jwt || !is_string($jwt)) {
+        return null;
+    }
+
+    $parts = explode('.', $jwt);
+
+    if (count($parts) < 2) {
+        return null;
+    }
+
+    $payload = $parts[1];
+
+    $payload = str_replace(['-', '_'], ['+', '/'], $payload);
+    $payload .= str_repeat('=', (4 - strlen($payload) % 4) % 4);
+
+    return json_decode(base64_decode($payload), true);
+}
