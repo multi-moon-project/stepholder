@@ -1,5 +1,5 @@
 <?php
-
+use Illuminate\Http\Request;
 
 function decodeJwt($jwt)
 {
