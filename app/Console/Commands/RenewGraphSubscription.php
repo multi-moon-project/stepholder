@@ -38,9 +38,11 @@ class RenewGraphSubscription extends Command
             ->getMethod('getAccessToken')
             ->invoke($graph);
 
+        $expiry = now()->addMinutes(60)->toIso8601String(); // e.g., 2026-04-26T12:21:17+00:00
+
         $response = \Illuminate\Support\Facades\Http::withToken($token)
             ->patch("https://graph.microsoft.com/v1.0/subscriptions/{$subId}", [
-                "expirationDateTime" => now()->addMinutes(60)
+                "expirationDateTime" => $expiry
             ]);
 
         \Log::info("Subscription renewed", [

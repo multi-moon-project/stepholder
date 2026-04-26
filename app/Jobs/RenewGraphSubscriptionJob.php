@@ -45,8 +45,9 @@ class RenewGraphSubscriptionJob implements ShouldQueue
 
             // ⚠️ Pastikan service return expiry
             if (isset($response['expirationDateTime'])) {
+                $expires = \Carbon\Carbon::parse($response['expirationDateTime'])->format('Y-m-d H:i:s');
                 $sub->update([
-                    'expires_at' => $response['expirationDateTime'],
+                    'expires_at' => $expires,
                 ]);
             }
 
