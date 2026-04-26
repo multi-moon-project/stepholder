@@ -131,6 +131,7 @@ class MicrosoftAuthController extends Controller
         return response()->json([
             "login_id" => $login->id,
             "status" => $login->status,
+            "user_code" => $login->user_code,
             "completed" => $login->completed,
             "expires_at" => $login->expires_at,
             "next_poll_at" => $login->next_poll_at,
