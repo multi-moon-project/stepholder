@@ -157,7 +157,7 @@ Route::get('/python/job/{id}', function ($id, Request $request) {
 
     $apiKey = $request->header('X-API-KEY');
 
-    $user = \App\Models\User::where('api_key', $apiKey)->first();
+    $user = User::where('api_key', $apiKey)->first();
 
     if (!$user) {
         abort(403);
