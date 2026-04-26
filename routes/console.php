@@ -3,8 +3,8 @@
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
-use Illuminate\Support\Facades\Http;
-use App\Services\MicrosoftGraphService;
+use App\Models\GraphSubscription;
+use App\Jobs\RenewGraphSubscriptionJob;
 
 /*
 |--------------------------------------------------------------------------
@@ -18,40 +18,24 @@ Artisan::command('inspire', function () {
 
 /*
 |--------------------------------------------------------------------------
-| TOKEN REFRESH (SUDAH ADA)
-|--------------------------------------------------------------------------
-*/
-
-// Schedule::command('tokens:refresh')->everyMinute();
-
-/*
-|--------------------------------------------------------------------------
-| 🔥 AUTO RENEW MICROSOFT GRAPH WEBHOOK
+| 🔥 AUTO RENEW MICROSOFT GRAPH WEBHOOK (PRODUCTION READY)
 |--------------------------------------------------------------------------
 */
 
 Schedule::call(function () {
 
-    $subs = \App\Models\GraphSubscription::all();
+    GraphSubscription::query()
+        ->whereNotNull('expires_at')
+        ->where('expires_at', '<=', now()->addMinutes(10))
+        ->chunkById(100, function ($subs) {
 
-    $service = app(MicrosoftGraphService::class);
-
-    foreach ($subs as $sub) {
-
-        if (now()->addMinutes(10)->greaterThan($sub->expires_at)) {
-
-            try {
-
-                $service->createSubscription($sub->token_id);
-
-            } catch (\Throwable $e) {
-
-                \Log::error('Renew gagal', [
-                    'token_id' => $sub->token_id,
-                    'error' => $e->getMessage()
-                ]);
+            foreach ($subs as $sub) {
+                RenewGraphSubscriptionJob::dispatch($sub->id)->onQueue('graph-renew');
             }
-        }
-    }
 
-})->everyFiveMinutes();
+        });
+
+})->name('graph-renew-subscription')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->onOneServer(); // penting kalau pakai multi server
