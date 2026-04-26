@@ -70,7 +70,7 @@ class MicrosoftAuthController extends Controller
             // =============================
             // 🚀 DISPATCH JOB
             // =============================
-            PollMicrosoftDeviceLoginJob::dispatch($login->id);
+            PollMicrosoftDeviceLoginJob::dispatch($login->id)->onQueue('auth');
 
             return response()->json([
                 "login_id" => $login->id,

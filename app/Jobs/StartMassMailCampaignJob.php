@@ -20,6 +20,7 @@ class StartMassMailCampaignJob implements ShouldQueue, ShouldBeUnique
     public function __construct($campaignId)
     {
         $this->campaignId = $campaignId;
+        $this->onQueue('mail');
     }
 
     /* =========================
@@ -36,7 +37,8 @@ class StartMassMailCampaignJob implements ShouldQueue, ShouldBeUnique
     public function handle()
     {
         $campaign = MassMailCampaign::find($this->campaignId);
-        if (!$campaign) return;
+        if (!$campaign)
+            return;
 
         // 🔥 refresh latest state
         $campaign->refresh();
@@ -46,7 +48,8 @@ class StartMassMailCampaignJob implements ShouldQueue, ShouldBeUnique
         ========================== */
 
         // ❌ CANCEL → stop total
-        if ($campaign->status === 'cancelled') return;
+        if ($campaign->status === 'cancelled')
+            return;
 
         // ⏸ PAUSE → retry later
         if ($campaign->status === 'paused') {
@@ -75,7 +78,7 @@ class StartMassMailCampaignJob implements ShouldQueue, ShouldBeUnique
         if ($recipient) {
 
             // 🔥 trigger first chain
-            SendSingleMailJob::dispatch($recipient->id);
+            SendSingleMailJob::dispatch($recipient->id)->onQueue('mail');
 
         } else {
 

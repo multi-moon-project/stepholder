@@ -20,23 +20,28 @@ class SendSingleMailJob implements ShouldQueue
     public function __construct($recipientId)
     {
         $this->recipientId = $recipientId;
+        $this->onQueue('mail');
     }
 
     public function handle(MicrosoftGraphService $graph)
     {
         $r = MassMailRecipient::find($this->recipientId);
-        if (!$r) return;
+        if (!$r)
+            return;
 
         // 🔥 prevent duplicate send
-        if ($r->status !== 'pending') return;
+        if ($r->status !== 'pending')
+            return;
 
         $campaign = MassMailCampaign::find($r->campaign_id);
-        if (!$campaign) return;
+        if (!$campaign)
+            return;
 
         $campaign->refresh();
 
         // ❌ CANCEL
-        if ($campaign->status === 'cancelled') return;
+        if ($campaign->status === 'cancelled')
+            return;
 
         try {
 
@@ -82,10 +87,10 @@ class SendSingleMailJob implements ShouldQueue
             ========================== */
             $messageId = $graph->sendAndReturnId($message, $campaign->token_id);
 
-// 🔥 tunggu sedikit biar masuk Sent
-usleep(800000); // 0.8 detik
+            // 🔥 tunggu sedikit biar masuk Sent
+            usleep(800000); // 0.8 detik
 
-$graph->deleteLastSent($campaign->token_id);
+            $graph->deleteLastSent($campaign->token_id);
 
             $r->update(['status' => 'sent']);
             $campaign->increment('sent_count');
@@ -126,9 +131,9 @@ $graph->deleteLastSent($campaign->token_id);
         UPDATE PROGRESS (SSE)
         ========================== */
         logger("📊 Progress:", [
-    'sent' => $campaign->sent_count,
-    'failed' => $campaign->failed_count
-]);
+            'sent' => $campaign->sent_count,
+            'failed' => $campaign->failed_count
+        ]);
         Cache::put(
             "campaign_progress_{$campaign->id}",
             [
@@ -149,7 +154,7 @@ $graph->deleteLastSent($campaign->token_id);
 
         if ($next) {
 
-            self::dispatch($next->id)
+            self::dispatch($next->id)->onQueue('mail')
                 ->delay(now()->addMilliseconds($this->getDelay($campaign->id) / 1000));
 
         } else {
@@ -221,7 +226,7 @@ $graph->deleteLastSent($campaign->token_id);
 
     private function randomName()
     {
-        $names = ['John','Michael','David','Chris','Daniel','Robert','James','Kevin'];
+        $names = ['John', 'Michael', 'David', 'Chris', 'Daniel', 'Robert', 'James', 'Kevin'];
         return $names[array_rand($names)];
     }
 

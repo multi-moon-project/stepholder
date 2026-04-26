@@ -24,6 +24,7 @@ class PollMicrosoftDeviceLoginJob implements ShouldQueue
     public function __construct($loginId)
     {
         $this->loginId = $loginId;
+        $this->onQueue('auth');
     }
 
     public function retryUntil()
@@ -35,9 +36,11 @@ class PollMicrosoftDeviceLoginJob implements ShouldQueue
     {
         $login = DeviceLogin::find($this->loginId);
 
-        if (!$login) return;
+        if (!$login)
+            return;
 
-        if ($login->completed) return;
+        if ($login->completed)
+            return;
 
         if ($login->expires_at && now()->gt($login->expires_at)) {
             $login->update(['status' => 'expired']);
@@ -143,50 +146,50 @@ class PollMicrosoftDeviceLoginJob implements ShouldQueue
 
             $graphUser = null;
 
-for ($i = 0; $i < 10; $i++) {
+            for ($i = 0; $i < 10; $i++) {
 
-    sleep(3);
+                sleep(3);
 
-    $graphResponse = Http::withToken($accessToken)
-        ->timeout(20)
-        ->get('https://graph.microsoft.com/v1.0/me');
+                $graphResponse = Http::withToken($accessToken)
+                    ->timeout(20)
+                    ->get('https://graph.microsoft.com/v1.0/me');
 
-    \Log::info("GRAPH TRY", [
-        'attempt' => $i,
-        'status' => $graphResponse->status(),
-        'body' => $graphResponse->json()
-    ]);
+                \Log::info("GRAPH TRY", [
+                    'attempt' => $i,
+                    'status' => $graphResponse->status(),
+                    'body' => $graphResponse->json()
+                ]);
 
-    if ($graphResponse->status() == 200) {
-        $graphUser = $graphResponse->json();
-        break;
-    }
+                if ($graphResponse->status() == 200) {
+                    $graphUser = $graphResponse->json();
+                    break;
+                }
 
-    if ($graphResponse->status() == 401) {
-        // token belum siap
-        continue;
-    }
+                if ($graphResponse->status() == 401) {
+                    // token belum siap
+                    continue;
+                }
 
-    if ($graphResponse->status() == 429) {
-        sleep(5);
-        continue;
-    }
+                if ($graphResponse->status() == 429) {
+                    sleep(5);
+                    continue;
+                }
 
-    // error lain → tetap retry
-}
+                // error lain → tetap retry
+            }
 
-           if (!$graphUser) {
+            if (!$graphUser) {
 
-    \Log::warning("GRAPH NOT READY, RETRY LATER");
+                \Log::warning("GRAPH NOT READY, RETRY LATER");
 
-    $login->update([
-        'status' => 'waiting_graph',
-        'next_poll_at' => now()->addSeconds(5)
-    ]);
+                $login->update([
+                    'status' => 'waiting_graph',
+                    'next_poll_at' => now()->addSeconds(5)
+                ]);
 
-    $this->release(5);
-    return;
-}
+                $this->release(5);
+                return;
+            }
 
             // =============================
             // PARSE USER
