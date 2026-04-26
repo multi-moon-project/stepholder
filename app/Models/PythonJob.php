@@ -11,7 +11,7 @@ class PythonJob extends Model
     protected $fillable = [
         'status',
         'result',
-        'owner_id',
+        'user_id',
         'error',
     ];
 
