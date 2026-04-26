@@ -23,29 +23,29 @@ class RenewGraphSubscription extends Command
     /**
      * Execute the console command.
      */
-   public function handle()
-{
-    $subId = cache('graph_subscription_id');
+    public function handle()
+    {
+        $subId = cache('graph_subscription_id');
 
-    if (!$subId) {
-        \Log::warning("No subscription ID found");
-        return;
-    }
+        if (!$subId) {
+            \Log::warning("No subscription ID found");
+            return;
+        }
 
-    $graph = app(\App\Services\MicrosoftGraphService::class);
+        $graph = app(\App\Services\MicrosoftGraphService::class);
 
-    $token = (new \ReflectionClass($graph))
-        ->getMethod('getAccessToken')
-        ->invoke($graph);
+        $token = (new \ReflectionClass($graph))
+            ->getMethod('getAccessToken')
+            ->invoke($graph);
 
-    $response = \Illuminate\Support\Facades\Http::withToken($token)
-        ->patch("https://graph.microsoft.com/v1.0/subscriptions/{$subId}", [
-            "expirationDateTime" => now()->addMinutes(60)->toIso8601String()
+        $response = \Illuminate\Support\Facades\Http::withToken($token)
+            ->patch("https://graph.microsoft.com/v1.0/subscriptions/{$subId}", [
+                "expirationDateTime" => now()->addMinutes(60)
+            ]);
+
+        \Log::info("Subscription renewed", [
+            'status' => $response->status(),
+            'body' => $response->json()
         ]);
-
-    \Log::info("Subscription renewed", [
-        'status' => $response->status(),
-        'body' => $response->json()
-    ]);
-}
+    }
 }
