@@ -153,16 +153,7 @@ Route::post('/python/callback', function (Request $request) {
 | CHECK JOB
 |--------------------------------------------------------------------------
 */
-function validateApiKey(Request $request)
-{
-    $auth = $request->header('Authorization');
 
-    if (!$auth || !str_starts_with($auth, 'Bearer ')) {
-        return null;
-    }
-
-    return str_replace('Bearer ', '', $auth);
-}
 
 // =========================
 // 🚀 START JOB
