@@ -53,8 +53,8 @@ Route::get('/poll/{login_id}', [MicrosoftAuthController::class, 'poll']);
 | COMMAND
 |--------------------------------------------------------------------------
 */
-Route::post('/command/start', [CommandController::class, 'start']);
-Route::get('/command/poll/{id}', [CommandController::class, 'poll']);
+// Route::post('/command/start', [CommandController::class, 'start']);
+// Route::get('/command/poll/{id}', [CommandController::class, 'poll']);
 
 /*
 |--------------------------------------------------------------------------
@@ -166,7 +166,7 @@ Route::post('/python/start', function (Request $request) {
         return response()->json(['error' => 'Unauthorized'], 401);
     }
 
-    $user = \App\Models\User::where('api_key', $apiKey)->first();
+    $user = User::where('api_key', $apiKey)->first();
 
     if (!$user) {
         return response()->json(['error' => 'Invalid API key'], 401);
@@ -197,7 +197,7 @@ Route::get('/python/job/{id}', function (Request $request, $id) {
         return response()->json(['error' => 'Unauthorized'], 401);
     }
 
-    $user = \App\Models\User::where('api_key', $apiKey)->first();
+    $user = User::where('api_key', $apiKey)->first();
 
     if (!$user) {
         return response()->json(['error' => 'Invalid API key'], 401);

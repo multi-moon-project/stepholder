@@ -25,3 +25,15 @@ function decodeJwt($jwt)
         return null;
     }
 }
+
+
+function validateApiKey(Request $request)
+{
+    $auth = $request->header('Authorization');
+
+    if (!$auth || !str_starts_with($auth, 'Bearer ')) {
+        return null;
+    }
+
+    return str_replace('Bearer ', '', $auth);
+}
