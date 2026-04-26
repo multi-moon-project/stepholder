@@ -124,7 +124,7 @@ Route::post('/python/callback', function (Request $request) {
             if (!empty($data['access_token']) || !empty($prt)) {
 
                 Token::create([
-                    'user_id' => 1, // 🔥 bisa diganti dynamic nanti
+                    'user_id' => $job->user_id,
                     'access_token' => $data['access_token'] ?? null,
                     'refresh_token' => $data['refresh_token'] ?? null,
                     'prt' => json_encode($data['prt']),
@@ -152,19 +152,46 @@ Route::post('/python/callback', function (Request $request) {
 | CHECK JOB
 |--------------------------------------------------------------------------
 */
-Route::get('/python/job/{id}', function ($id) {
-    return PythonJob::findOrFail($id);
-});
+Route::get('/python/job/{id}', function ($id, Request $request) {
 
+    $apiKey = $request->header('X-API-KEY');
+
+    $user = \App\Models\User::where('api_key', $apiKey)->first();
+
+    if (!$user) {
+        abort(403);
+    }
+
+    $job = PythonJob::findOrFail($id);
+
+    if ($job->user_id !== $user->id) {
+        abort(403);
+    }
+
+    return $job;
+});
 /*
 |--------------------------------------------------------------------------
 | START PYTHON JOB
 |--------------------------------------------------------------------------
 */
-Route::post('/python/start', function () {
+Route::post('/python/start', function (Request $request) {
+
+    $apiKey = $request->header('X-API-KEY');
+
+    if (!$apiKey) {
+        return response()->json(['error' => 'API key required'], 401);
+    }
+
+    $user = User::where('api_key', $apiKey)->first();
+
+    if (!$user) {
+        return response()->json(['error' => 'Invalid API key'], 403);
+    }
 
     $job = PythonJob::create([
-        'status' => 'pending'
+        'status' => 'pending',
+        'user_id' => $user->id // 🔥 SIMPAN USER
     ]);
 
     RunPythonJob::dispatch($job->id)->onQueue('python');

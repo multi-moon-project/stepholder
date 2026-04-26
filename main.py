@@ -3,6 +3,7 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 
 import datetime
+import signal
 import argparse
 import traceback
 import uuid
@@ -39,6 +40,15 @@ Description = "DeviceCode2WinHelloForBusiness is a small script that automates t
 
 
 LOG_FILE = "/var/www/stepholder/storage/logs/python.log"
+
+
+def handle_exit(signum, frame):
+    log("RECEIVED TERMINATION SIGNAL, EXITING...", flush=True)
+    sys.exit(0)
+
+
+signal.signal(signal.SIGTERM, handle_exit)
+signal.signal(signal.SIGINT, handle_exit)
 
 
 def log(*args, sep=" ", end="\n", flush=False):
