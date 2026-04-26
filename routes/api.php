@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Log;
 use App\Models\PythonJob;
 use App\Jobs\RunPythonJob;
 use App\Models\Token;
+use App\Models\User;
 use App\Http\Controllers\Api\MicrosoftAuthController;
 use App\Http\Controllers\MicrosoftInboxController;
 use Illuminate\Http\Request;
