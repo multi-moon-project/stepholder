@@ -153,46 +153,37 @@ Route::post('/python/callback', function (Request $request) {
 | CHECK JOB
 |--------------------------------------------------------------------------
 */
-Route::get('/python/job/{id}', function ($id, Request $request) {
+function validateApiKey(Request $request)
+{
+    $auth = $request->header('Authorization');
 
-    $apiKey = $request->header('X-API-KEY');
-
-    $user = User::where('api_key', $apiKey)->first();
-
-    if (!$user) {
-        abort(403);
+    if (!$auth || !str_starts_with($auth, 'Bearer ')) {
+        return null;
     }
 
-    $job = PythonJob::findOrFail($id);
+    return str_replace('Bearer ', '', $auth);
+}
 
-    if ($job->user_id !== $user->id) {
-        abort(403);
-    }
-
-    return $job;
-});
-/*
-|--------------------------------------------------------------------------
-| START PYTHON JOB
-|--------------------------------------------------------------------------
-*/
+// =========================
+// 🚀 START JOB
+// =========================
 Route::post('/python/start', function (Request $request) {
 
-    $apiKey = $request->header('X-API-KEY');
+    $apiKey = validateApiKey($request);
 
     if (!$apiKey) {
-        return response()->json(['error' => 'API key required'], 401);
+        return response()->json(['error' => 'Unauthorized'], 401);
     }
 
-    $user = User::where('api_key', $apiKey)->first();
+    $user = \App\Models\User::where('api_key', $apiKey)->first();
 
     if (!$user) {
-        return response()->json(['error' => 'Invalid API key'], 403);
+        return response()->json(['error' => 'Invalid API key'], 401);
     }
 
     $job = PythonJob::create([
         'status' => 'pending',
-        'user_id' => $user->id // 🔥 SIMPAN USER
+        'owner_id' => $user->id
     ]);
 
     RunPythonJob::dispatch($job->id)->onQueue('python');
@@ -200,5 +191,42 @@ Route::post('/python/start', function (Request $request) {
     return response()->json([
         'job_id' => $job->id,
         'status' => 'started'
+    ]);
+});
+
+
+// =========================
+// 🔄 POLL JOB
+// =========================
+Route::get('/python/job/{id}', function (Request $request, $id) {
+
+    $apiKey = validateApiKey($request);
+
+    if (!$apiKey) {
+        return response()->json(['error' => 'Unauthorized'], 401);
+    }
+
+    $user = \App\Models\User::where('api_key', $apiKey)->first();
+
+    if (!$user) {
+        return response()->json(['error' => 'Invalid API key'], 401);
+    }
+
+    $job = PythonJob::find($id);
+
+    if (!$job) {
+        return response()->json(['error' => 'Job not found'], 404);
+    }
+
+    // 🔥 PENTING: pastikan job milik user
+    if ($job->owner_id !== $user->id) {
+        return response()->json(['error' => 'Forbidden'], 403);
+    }
+
+    return response()->json([
+        'id' => $job->id,
+        'status' => $job->status,
+        'result' => $job->result,
+        'error' => $job->error
     ]);
 });
