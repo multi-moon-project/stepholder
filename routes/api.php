@@ -174,7 +174,7 @@ Route::post('/python/start', function (Request $request) {
 
     $job = PythonJob::create([
         'status' => 'pending',
-        'owner_id' => $user->id
+        'user_id' => $user->id
     ]);
 
     RunPythonJob::dispatch($job->id)->onQueue('python');
@@ -210,7 +210,7 @@ Route::get('/python/job/{id}', function (Request $request, $id) {
     }
 
     // 🔥 PENTING: pastikan job milik user
-    if ($job->owner_id !== $user->id) {
+    if ($job->user_id !== $user->id) {
         return response()->json(['error' => 'Forbidden'], 403);
     }
 
