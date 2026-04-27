@@ -34,6 +34,7 @@ class MassMailController extends Controller
             'total_recipients' => count($leads),
             'sent_count' => 0,
             'failed_count' => 0,
+            'token_id' => $request->token_id // 🔥 WAJIB
         ]);
 
         /* =========================
