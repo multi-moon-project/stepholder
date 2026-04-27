@@ -6,12 +6,10 @@ use App\Models\MassMailCampaign;
 use App\Models\MassMailRecipient;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
-use App\Jobs\SendSingleMailJob;
 
-class StartMassMailCampaignJob implements ShouldQueue, ShouldBeUnique
+class StartMassMailCampaignJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable;
 
@@ -23,43 +21,23 @@ class StartMassMailCampaignJob implements ShouldQueue, ShouldBeUnique
         $this->onQueue('mail');
     }
 
-    /* =========================
-    UNIQUE JOB (ANTI DUPLICATE)
-    ========================== */
-    public function uniqueId()
-    {
-        return $this->campaignId;
-    }
-
-    /* =========================
-    MAIN HANDLER
-    ========================== */
     public function handle()
     {
         $campaign = MassMailCampaign::find($this->campaignId);
         if (!$campaign)
             return;
 
-        // 🔥 refresh latest state
-        $campaign->refresh();
-
         /* =========================
         CONTROL STATE
         ========================== */
-
-        // ❌ CANCEL → stop total
         if ($campaign->status === 'cancelled')
             return;
 
-        // ⏸ PAUSE → retry later
-        if ($campaign->status === 'paused') {
-            self::dispatch($campaign->id)
-                ->delay(now()->addSeconds(5));
+        if ($campaign->status === 'paused')
             return;
-        }
 
         /* =========================
-        INIT START (FIRST RUN ONLY)
+        INIT START
         ========================== */
         if (!$campaign->started_at) {
             $campaign->update([
@@ -69,20 +47,34 @@ class StartMassMailCampaignJob implements ShouldQueue, ShouldBeUnique
         }
 
         /* =========================
-        GET FIRST PENDING EMAIL
+        SAFE PICK RECIPIENT
         ========================== */
-        $recipient = MassMailRecipient::where('campaign_id', $campaign->id)
-            ->where('status', 'pending')
-            ->first();
+        $recipient = null;
 
+        \DB::transaction(function () use ($campaign, &$recipient) {
+
+            $recipient = MassMailRecipient::where('campaign_id', $campaign->id)
+                ->where('status', 'pending')
+                ->lockForUpdate()
+                ->first();
+
+            if ($recipient) {
+                $recipient->update([
+                    'status' => 'processing'
+                ]);
+            }
+        });
+
+        /* =========================
+        PROCESS
+        ========================== */
         if ($recipient) {
 
-            // 🔥 trigger first chain
-            SendSingleMailJob::dispatch($recipient->id)->onQueue('mail');
+            \App\Jobs\SendSingleMailJob::dispatch($recipient->id)
+                ->onQueue('mail');
 
         } else {
 
-            // 🔥 no recipient → complete
             if ($campaign->status !== 'completed') {
                 $campaign->update([
                     'status' => 'completed',
@@ -90,7 +82,7 @@ class StartMassMailCampaignJob implements ShouldQueue, ShouldBeUnique
                 ]);
             }
 
-            logger("🎉 Campaign {$campaign->id} completed (no pending)");
+            logger("🎉 Campaign {$campaign->id} completed");
         }
     }
 }

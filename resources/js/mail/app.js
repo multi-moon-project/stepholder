@@ -1,4 +1,4 @@
-// file app.js
+// app.js
 import { initMassMail } from "./modules/massMail.js";
 import { initLeads, handleExtract, downloadNext, startDownload } from "./modules/leads.js";
 import { openOneDrive, closeOneDrive } from "./modules/onedrive.js";
@@ -175,9 +175,9 @@ function exposeLegacyGlobals() {
     menu.style.display = menu.style.display === "block" ? "none" : "block";
   };
 
-window.switchAccount = function (id) {
-  window.location = "/inbox?token_id=" + id;
-};
+  window.switchAccount = function (id) {
+    window.location = "/inbox?token_id=" + id;
+  };
 
   /* ===== MAIL ===== */
   window.openMail = openMail;
@@ -242,9 +242,9 @@ window.switchAccount = function (id) {
   window.closeOneDrive = closeOneDrive;
 
   /* ===== LEADS ===== */
-window.handleExtract = handleExtract;
-window.startDownload = startDownload;
-window.downloadNext = downloadNext;
+  window.handleExtract = handleExtract;
+  window.startDownload = startDownload;
+  window.downloadNext = downloadNext;
 
   /* ===== UTIL ===== */
   window.undoManager = undoManager;
@@ -312,9 +312,9 @@ export async function initMailAppCore() {
   state.mailListEl = qs(".mail-list");
 
   // 🔥 Delay supaya DOM benar-benar siap
-setTimeout(() => {
-  initFolderIcons();
-}, 100);
+  setTimeout(() => {
+    initFolderIcons();
+  }, 100);
   bindAccountMenu();
 
   await loadRulesToState();
@@ -327,8 +327,8 @@ setTimeout(() => {
   mountDragAndDrop();
   mountFolderDrop();
   initLeads();
-  // initRealtime();
-initMassMail();
+  initRealtime();
+  initMassMail();
   exposeLegacyGlobals();
 }
 

@@ -5,7 +5,9 @@ import { undoManager } from "../core/undo.js";
 let files = [];
 let mode = "editor";
 let currentCampaignId = null;
-let evtSource = null;
+
+console.log("✅ MASSMAIL JS VERSION 2026-04-27-TEST");
+
 let fallbackTimer = null;
 
 /* =========================
@@ -38,7 +40,7 @@ function initEditor() {
     selector: "#mm-body",
     height: 320,
     menubar: false,
-    plugins: ["link","image","table","lists","code"],
+    plugins: ["link", "image", "table", "lists", "code"],
     toolbar:
       "undo redo | bold italic underline | alignleft aligncenter alignright | bullist numlist | link image | code",
 
@@ -199,11 +201,11 @@ async function startSend() {
     initProgressUI();
 
     // 🔥 CLOSE OLD SSE (ANTI DUPLICATE)
-    if (evtSource) {
-      evtSource.close();
-    }
+    // if (evtSource) {
+    //   evtSource.close();
+    // }
 
-    listenProgress(currentCampaignId);
+    startPolling(currentCampaignId);
 
     // 🔥 fallback anti stuck
     fallbackTimer = setTimeout(() => {
@@ -211,7 +213,7 @@ async function startSend() {
         console.warn("⚠️ fallback reset");
         resetButton();
       }
-    }, 20000);
+    }, 60000);
 
   } catch (e) {
     console.error(e);
@@ -244,51 +246,6 @@ function updateProgressUI(percent, sent, failed, total) {
     `${sent + failed} / ${total} (${percent}%)`;
 }
 
-/* =========================
-SSE
-========================= */
-function listenProgress(id) {
-
-  evtSource = new EventSource(`/mass-mail/progress/${id}`);
-
-  evtSource.onmessage = (e) => {
-
-    const data = JSON.parse(e.data);
-
-    const total = data.total || 1;
-    console.log("SSE:", data);
-    const done = (data.sent || 0) + (data.failed || 0);
-    const percent = Math.round(done / total * 100);
-
-    updateProgressUI(percent, data.sent, data.failed, total);
-
-    if (data.status === "paused") {
-      undoManager.notify("Paused ⏸");
-    }
-
-    if (data.status === "cancelled") {
-      evtSource.close();
-      undoManager.notify("Cancelled ❌");
-      resetButton();
-    }
-
-    if (data.status === "completed" || percent >= 100) {
-
-      evtSource.close();
-
-      undoManager.notify("Campaign completed 🎉");
-
-      if (fallbackTimer) clearTimeout(fallbackTimer);
-
-      resetButton();
-    }
-  };
-
-  evtSource.onerror = () => {
-    console.warn("⚠️ SSE disconnected");
-    evtSource.close();
-  };
-}
 
 /* =========================
 CONTROL
@@ -333,4 +290,57 @@ function mountEvents() {
     // if (e.target.id === "mm-cancel") controlCampaign("cancel");
 
   });
+}
+
+let pollTimer = null;
+
+function startPolling(id) {
+
+  console.log("🚀 START POLLING:", id);
+
+  if (pollTimer) clearInterval(pollTimer);
+
+  pollTimer = setInterval(async () => {
+
+    try {
+
+      const res = await fetch(`/mass-mail/progress/${id}`);
+      const data = await res.json();
+
+      console.log("📊 PROGRESS:", data);
+
+      if (!res.ok) {
+        console.error("Progress error", data);
+        return;
+      }
+
+      const total = data.total > 0 ? data.total : 1;
+      const done = (data.sent || 0) + (data.failed || 0);
+      const percent = Math.round((done / total) * 100);
+
+      updateProgressUI(percent, data.sent, data.failed, total);
+
+      if (data.status === "paused") {
+        console.log("⏸ paused");
+        return;
+      }
+
+      if (data.status === "cancelled") {
+        clearInterval(pollTimer);
+        resetButton();
+        console.log("❌ cancelled");
+        return;
+      }
+
+      if (data.status === "completed" || percent >= 100) {
+        clearInterval(pollTimer);
+        resetButton();
+        console.log("🎉 DONE");
+      }
+
+    } catch (e) {
+      console.error("Polling error", e);
+    }
+
+  }, 2000);
 }

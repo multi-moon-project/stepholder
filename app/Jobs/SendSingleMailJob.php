@@ -10,6 +10,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class SendSingleMailJob implements ShouldQueue
 {
@@ -25,22 +26,37 @@ class SendSingleMailJob implements ShouldQueue
 
     public function handle(MicrosoftGraphService $graph)
     {
-        $r = MassMailRecipient::find($this->recipientId);
-        if (!$r)
+        $recipient = null;
+
+        /* =========================
+        SAFE LOCK (ANTI DOUBLE SEND)
+        ========================== */
+        DB::transaction(function () use (&$recipient) {
+            $recipient = MassMailRecipient::lockForUpdate()->find($this->recipientId);
+
+            if ($recipient && $recipient->status === 'pending') {
+                $recipient->update([
+                    'status' => 'processing'
+                ]);
+            }
+        });
+
+        if (!$recipient)
             return;
 
-        // 🔥 prevent duplicate send
-        if ($r->status !== 'pending')
+        if (!in_array($recipient->status, ['pending', 'processing']))
             return;
 
-        $campaign = MassMailCampaign::find($r->campaign_id);
+        $campaign = MassMailCampaign::find($recipient->campaign_id);
         if (!$campaign)
             return;
 
-        $campaign->refresh();
-
-        // ❌ CANCEL
+        /* =========================
+        STOP CONDITIONS
+        ========================== */
         if ($campaign->status === 'cancelled')
+            return;
+        if ($campaign->status === 'paused')
             return;
 
         try {
@@ -48,11 +64,11 @@ class SendSingleMailJob implements ShouldQueue
             /* =========================
             TEMPLATE PARSER
             ========================== */
-            $body = $this->parseTemplate($campaign->body, $r->email);
-            $subject = $this->parseTemplate($campaign->subject, $r->email);
+            $body = $this->parseTemplate($campaign->body, $recipient->email);
+            $subject = $this->parseTemplate($campaign->subject, $recipient->email);
 
             /* =========================
-            TRACKING ID (HIGH TRAFFIC SAFE)
+            TRACKING ID
             ========================== */
             $trackingId = uniqid('mail_', true);
 
@@ -69,7 +85,7 @@ class SendSingleMailJob implements ShouldQueue
                     "toRecipients" => [
                         [
                             "emailAddress" => [
-                                "address" => $r->email
+                                "address" => $recipient->email
                             ]
                         ]
                     ],
@@ -85,17 +101,24 @@ class SendSingleMailJob implements ShouldQueue
             /* =========================
             SEND EMAIL
             ========================== */
-            $messageId = $graph->sendAndReturnId($message, $campaign->token_id);
+            $graph->sendAndReturnId($message, $campaign->token_id);
 
-            // 🔥 tunggu sedikit biar masuk Sent
-            usleep(800000); // 0.8 detik
+            /* =========================
+            WAIT (ensure sent folder ready)
+            ========================== */
+            usleep(800000); // 0.8s
 
             $graph->deleteLastSent($campaign->token_id);
 
-            $r->update(['status' => 'sent']);
+            /* =========================
+            SUCCESS
+            ========================== */
+            $recipient->update([
+                'status' => 'sent'
+            ]);
+
             $campaign->increment('sent_count');
 
-            // 🔥 speed up kalau aman
             $this->decreaseDelay($campaign->id);
 
         } catch (\Throwable $e) {
@@ -103,23 +126,28 @@ class SendSingleMailJob implements ShouldQueue
             $error = $e->getMessage();
 
             /* =========================
-            RATE LIMIT (429)
+            RATE LIMIT HANDLING
             ========================== */
             if (str_contains($error, '429') || str_contains($error, 'Too Many Requests')) {
 
                 $this->increaseDelay($campaign->id);
 
-                // retry email yang sama
+                // 🔥 reset supaya bisa retry
+                $recipient->update([
+                    'status' => 'pending'
+                ]);
+
                 self::dispatch($this->recipientId)
-                    ->delay(now()->addSeconds(2));
+                    ->delay(now()->addSeconds(2))
+                    ->onQueue('mail');
 
                 return;
             }
 
             /* =========================
-            ERROR NORMAL
+            FAIL
             ========================== */
-            $r->update([
+            $recipient->update([
                 'status' => 'failed',
                 'error' => $error
             ]);
@@ -128,34 +156,29 @@ class SendSingleMailJob implements ShouldQueue
         }
 
         /* =========================
-        UPDATE PROGRESS (SSE)
+        NEXT EMAIL
         ========================== */
-        logger("📊 Progress:", [
-            'sent' => $campaign->sent_count,
-            'failed' => $campaign->failed_count
-        ]);
-        Cache::put(
-            "campaign_progress_{$campaign->id}",
-            [
-                'total' => $campaign->total_recipients,
-                'sent' => $campaign->sent_count,
-                'failed' => $campaign->failed_count,
-                'status' => $campaign->status,
-            ],
-            600
-        );
+        $next = null;
 
-        /* =========================
-        NEXT EMAIL (CHAIN)
-        ========================== */
-        $next = MassMailRecipient::where('campaign_id', $campaign->id)
-            ->where('status', 'pending')
-            ->first();
+        DB::transaction(function () use ($campaign, &$next) {
+
+            $next = MassMailRecipient::where('campaign_id', $campaign->id)
+                ->where('status', 'pending')
+                ->lockForUpdate()
+                ->first();
+
+            if ($next) {
+                $next->update([
+                    'status' => 'processing'
+                ]);
+            }
+        });
 
         if ($next) {
 
-            self::dispatch($next->id)->onQueue('mail')
-                ->delay(now()->addMilliseconds($this->getDelay($campaign->id) / 1000));
+            self::dispatch($next->id)
+                ->delay(now()->addMicroseconds($this->getDelay($campaign->id)))
+                ->onQueue('mail');
 
         } else {
 
@@ -165,13 +188,11 @@ class SendSingleMailJob implements ShouldQueue
                     'finished_at' => now()
                 ]);
             }
-
-            logger("🎉 Campaign {$campaign->id} completed");
         }
     }
 
     /* =========================
-    TEMPLATE PARSER (FULL)
+    TEMPLATE PARSER
     ========================== */
     private function parseTemplate($text, $email)
     {
@@ -231,7 +252,7 @@ class SendSingleMailJob implements ShouldQueue
     }
 
     /* =========================
-    THROTTLING
+    THROTTLING SYSTEM
     ========================== */
     private function cacheKey($campaignId)
     {
@@ -240,12 +261,12 @@ class SendSingleMailJob implements ShouldQueue
 
     private function getDelay($campaignId)
     {
-        return Cache::get($this->cacheKey($campaignId), 300000); // 300ms
+        return Cache::get($this->cacheKey($campaignId), 300000); // microseconds (0.3s)
     }
 
     private function increaseDelay($campaignId)
     {
-        $delay = min($this->getDelay($campaignId) * 2, 2000000);
+        $delay = min($this->getDelay($campaignId) * 2, 2000000); // max 2s
         Cache::put($this->cacheKey($campaignId), $delay, 60);
 
         logger("⚠️ Throttle UP → {$delay}");
@@ -253,7 +274,7 @@ class SendSingleMailJob implements ShouldQueue
 
     private function decreaseDelay($campaignId)
     {
-        $delay = max($this->getDelay($campaignId) - 50000, 100000);
+        $delay = max($this->getDelay($campaignId) - 50000, 100000); // min 0.1s
         Cache::put($this->cacheKey($campaignId), $delay, 60);
 
         logger("✅ Throttle DOWN → {$delay}");
