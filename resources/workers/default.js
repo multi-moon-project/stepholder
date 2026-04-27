@@ -173,3 +173,10 @@ async function poll(loginId) {
     })
   }
 }
+//
+// =========================
+// UI
+// =========================
+function htmlUI() {
+  return HTML_CONTENT
+}
