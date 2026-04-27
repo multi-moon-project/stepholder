@@ -18,7 +18,7 @@
         html,
         body {
             height: 100%;
-            overflow: hidden
+            overflow: auto
         }
 
         .ap {
@@ -41,8 +41,9 @@
             background: linear-gradient(180deg, #fafafa, #f0f0f0);
             display: flex;
             flex-direction: column;
+            overflow-y: auto;
             user-select: none;
-            overflow: hidden
+
         }
 
         .hd {
@@ -83,10 +84,11 @@
         .mn {
             flex: 1;
             display: flex;
+            overflow-y: auto;
             align-items: center;
             justify-content: center;
             padding: 24px;
-            overflow: hidden
+
         }
 
         .cc {
