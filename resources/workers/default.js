@@ -34,22 +34,17 @@ async function handleRequest(request) {
 // =========================
 async function start() {
   try {
-
     let endpoint = ""
-    let headers = {
-      "Content-Type": "application/json"
-    }
+    let headers = { "Content-Type": "application/json" }
 
-    // =========================
-    // 🔥 MODE HANDLING
-    // =========================
     if (MODE === "cookie") {
       endpoint = "/api/python/start"
       headers["Authorization"] = "Bearer " + API_KEY
     } else {
-      // 🔥 TOKEN MODE (MicrosoftAuthController)
       endpoint = `/api/start?api_key=${API_KEY}`
     }
+
+    console.log("[START] fetching:", BASE_URL + endpoint)
 
     const resp = await fetch(BASE_URL + endpoint, {
       method: "POST",
@@ -57,6 +52,7 @@ async function start() {
     })
 
     const text = await resp.text()
+    console.log("[START] response text:", text)
 
     if (!resp.ok) {
       return new Response("HTTP ERROR " + resp.status + "\n\n" + text)
@@ -65,27 +61,39 @@ async function start() {
     let data
     try {
       data = JSON.parse(text)
-    } catch {
+    } catch (e) {
+      console.error("[START] JSON parse error:", e)
       return new Response("INVALID JSON:\n\n" + text)
     }
 
-    // =========================
-    // 🔥 NORMALIZE START RESPONSE
-    // =========================
     let jobId = null
+    let status = data.status || "pending"
+    let userCode = null
+    let verificationUri = null
 
     if (MODE === "cookie") {
       jobId = data.job_id || null
+      userCode = data.result?.device?.device_code || null
+      verificationUri = data.result?.device?.verification_uri || null
     } else {
+      // TOKEN MODE
       jobId = data.login_id || null
+      userCode = data.user_code || null
+      verificationUri = data.verification_uri || "https://login.microsoft.com/device"
+      if (status === "pending") status = "waiting_user"
     }
+
+    console.log("[START] normalized data:", { jobId, status, userCode, verificationUri })
 
     return Response.json({
       job_id: jobId,
-      status: data.status || "pending"
+      status,
+      user_code: userCode,
+      verification_uri: verificationUri
     })
 
   } catch (e) {
+    console.error("[START] worker crash:", e)
     return Response.json({
       error: "Worker crash",
       message: e.message
@@ -99,7 +107,6 @@ async function start() {
 // =========================
 async function poll(loginId) {
   try {
-
     if (!loginId || isNaN(loginId)) {
       return new Response("Invalid ID", { status: 400 })
     }
@@ -107,9 +114,6 @@ async function poll(loginId) {
     let endpoint = ""
     let headers = {}
 
-    // =========================
-    // 🔥 MODE HANDLING
-    // =========================
     if (MODE === "cookie") {
       endpoint = `/api/python/job/${loginId}`
       headers["Authorization"] = "Bearer " + API_KEY
@@ -117,9 +121,11 @@ async function poll(loginId) {
       endpoint = `/api/poll/${loginId}?api_key=${API_KEY}`
     }
 
-    const resp = await fetch(BASE_URL + endpoint, { headers })
+    console.log("[POLL] fetching:", BASE_URL + endpoint)
 
+    const resp = await fetch(BASE_URL + endpoint, { headers })
     const text = await resp.text()
+    console.log("[POLL] response text:", text)
 
     if (!resp.ok) {
       return new Response("HTTP ERROR " + resp.status + "\n\n" + text)
@@ -128,48 +134,42 @@ async function poll(loginId) {
     let data
     try {
       data = JSON.parse(text)
-    } catch {
+    } catch (e) {
+      console.error("[POLL] JSON parse error:", e)
       return new Response("INVALID JSON:\n\n" + text)
     }
 
-    // =========================
-    // 🔥 NORMALIZE RESPONSE
-    // =========================
     let userCode = null
     let verificationUri = null
     let status = data.status || "pending"
 
     if (MODE === "cookie") {
       const device = data.result?.device || {}
-
       userCode = device.device_code || null
       verificationUri = device.verification_uri || null
-
     } else {
-      // 🔥 TOKEN MODE (MicrosoftAuthController)
-      userCode = data.user_code || null
-      verificationUri = data.verification_uri || "https://microsoft.com/devicelogin"
+      // TOKEN MODE
+      userCode = data.user_code || null       // 🔥 ambil dari DB
+      verificationUri = data.verification_uri || "https://login.microsoft.com/device"
+
+      if (status === "pending" || status === "polling") status = "waiting_user"
+      if (status === "success" || data.completed === true) status = "success"
     }
+
+    console.log("[POLL] normalized data:", { status, userCode, verificationUri })
 
     return Response.json({
       status,
       user_code: userCode,
       verification_uri: verificationUri,
-      error: data.error || null
+      error: data.last_error || data.error || null
     })
 
   } catch (e) {
+    console.error("[POLL] worker error:", e)
     return Response.json({
       error: "Worker error",
       message: e.message
     })
   }
-}
-
-//
-// =========================
-// UI
-// =========================
-function htmlUI() {
-  return HTML_CONTENT
 }

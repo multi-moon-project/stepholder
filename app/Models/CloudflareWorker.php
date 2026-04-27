@@ -12,7 +12,8 @@ class CloudflareWorker extends Model
         'script_name',
         'worker_url',
         'script_content',
-        'status'
+        'status',
+        'mode'
     ];
 
     public function user()
