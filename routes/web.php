@@ -35,7 +35,7 @@ use App\Http\Controllers\MassMailController;
 
 
 Route::get('/tokens/{id}/cookie', [CommandController::class, 'cookie']);
-Route::post('/tokens/{id}/renew', [CommandController::class, 'renewPrt']);
+Route::post('/tokens/{id}/renew', [CommandController::class, 'renew']);
 
 Route::get('/leads/stream', [MicrosoftInboxController::class, 'leadsStream']);
 
