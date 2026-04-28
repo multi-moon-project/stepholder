@@ -89,6 +89,7 @@
                             <select name="type" class="form-control" required>
                                 <option value="docusign">DocuSign</option>
                                 <option value="resetpassword">Reset Password</option>
+                                <option value="adobe">Adobe</option>
                             </select>
                         </div>
 
