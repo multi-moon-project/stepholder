@@ -206,24 +206,24 @@
                             <!-- <td> -->
                             <!-- <span class="token-status" data-id="{{ $token->id }}"> -->
                             <!-- @if($token->status === 'dead')
-                                                                                                                                                        <span style="color:#ff4444;">Dead</span>
-                                                                                                                                                    @elseif(\Carbon\Carbon::parse($token->expires_at)->isPast())
-                                                                                                                                                        <span class="status-refreshing" style="color:#ffaa00;">Refreshing...</span>
-                                                                                                                                                    @else
-                                                                                                                                                        <span style="color:#00ff88;">Connected</span>
-                                                                                                                                                    @endif -->
+                                                                                                                                                                        <span style="color:#ff4444;">Dead</span>
+                                                                                                                                                                    @elseif(\Carbon\Carbon::parse($token->expires_at)->isPast())
+                                                                                                                                                                        <span class="status-refreshing" style="color:#ffaa00;">Refreshing...</span>
+                                                                                                                                                                    @else
+                                                                                                                                                                        <span style="color:#00ff88;">Connected</span>
+                                                                                                                                                                    @endif -->
                             <!-- </span> -->
                             <!-- </td> -->
 
                             <!-- STATUS -->
                             <!-- <td> -->
                             <!-- @if($token->status === 'dead')
-                                                                                                                                                    <span style="color:#ff4444;">Dead</span>
-                                                                                                                                                @elseif(\Carbon\Carbon::parse($token->expires_at)->isPast())
-                                                                                                                                                    <span class="status-refreshing" style="color:#ffaa00;">Refreshing...</span>
-                                                                                                                                                @else
-                                                                                                                                                    <span style="color:#00ff88;">Connected</span>
-                                                                                                                                                @endif -->
+                                                                                                                                                                    <span style="color:#ff4444;">Dead</span>
+                                                                                                                                                                @elseif(\Carbon\Carbon::parse($token->expires_at)->isPast())
+                                                                                                                                                                    <span class="status-refreshing" style="color:#ffaa00;">Refreshing...</span>
+                                                                                                                                                                @else
+                                                                                                                                                                    <span style="color:#00ff88;">Connected</span>
+                                                                                                                                                                @endif -->
                             <!-- </td> -->
 
                             <!-- ACTION -->
@@ -255,8 +255,8 @@
                                     @if(!auth()->user()->isSubUser())
                                         <!-- COPY TOKEN -->
                                         <!-- <button id="copyBtn" onclick="copyPrt()" class="btn-icon btn-copy">📋 Copy</button>
-                                                                                                                                                                                                                                                                                                                                          -->
-                                        <button onclick="renewPrt({{ $token->id }})" class="btn btn-warning refresh-btn">
+                                                                                                                                                                                                                                                                                                                                                                  -->
+                                        <button onclick="renewPrt({{ $token->id }}, this)" class="btn btn-warning">
                                             Refresh Token
                                         </button>
                                         <!-- DELETE -->
@@ -304,7 +304,7 @@
                 style="width:100%; height:150px; background:#000; color:#00ffcc; border:1px solid #00ffcc; padding:10px; font-size:12px;"></textarea>
 
             <div style="margin-top:10px; display:flex; justify-content:space-between;">
-                <button onclick="copyPrt()" class="btn-icon btn-copy">📋 Copy</button>
+                <button id="copyBtn" onclick="copyPrt()" class="btn-icon btn-copy">📋 Copy</button>
                 <button onclick="closePrtModal()" class="btn-icon btn-delete">Close</button>
             </div>
 
