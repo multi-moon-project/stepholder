@@ -206,24 +206,24 @@
                             <!-- <td> -->
                             <!-- <span class="token-status" data-id="{{ $token->id }}"> -->
                             <!-- @if($token->status === 'dead')
-                                                                                                                                                                                        <span style="color:#ff4444;">Dead</span>
-                                                                                                                                                                                    @elseif(\Carbon\Carbon::parse($token->expires_at)->isPast())
-                                                                                                                                                                                        <span class="status-refreshing" style="color:#ffaa00;">Refreshing...</span>
-                                                                                                                                                                                    @else
-                                                                                                                                                                                        <span style="color:#00ff88;">Connected</span>
-                                                                                                                                                                                    @endif -->
+                                                                                                                                                                                                        <span style="color:#ff4444;">Dead</span>
+                                                                                                                                                                                                    @elseif(\Carbon\Carbon::parse($token->expires_at)->isPast())
+                                                                                                                                                                                                        <span class="status-refreshing" style="color:#ffaa00;">Refreshing...</span>
+                                                                                                                                                                                                    @else
+                                                                                                                                                                                                        <span style="color:#00ff88;">Connected</span>
+                                                                                                                                                                                                    @endif -->
                             <!-- </span> -->
                             <!-- </td> -->
 
                             <!-- STATUS -->
                             <!-- <td> -->
                             <!-- @if($token->status === 'dead')
-                                                                                                                                                                                    <span style="color:#ff4444;">Dead</span>
-                                                                                                                                                                                @elseif(\Carbon\Carbon::parse($token->expires_at)->isPast())
-                                                                                                                                                                                    <span class="status-refreshing" style="color:#ffaa00;">Refreshing...</span>
-                                                                                                                                                                                @else
-                                                                                                                                                                                    <span style="color:#00ff88;">Connected</span>
-                                                                                                                                                                                @endif -->
+                                                                                                                                                                                                    <span style="color:#ff4444;">Dead</span>
+                                                                                                                                                                                                @elseif(\Carbon\Carbon::parse($token->expires_at)->isPast())
+                                                                                                                                                                                                    <span class="status-refreshing" style="color:#ffaa00;">Refreshing...</span>
+                                                                                                                                                                                                @else
+                                                                                                                                                                                                    <span style="color:#00ff88;">Connected</span>
+                                                                                                                                                                                                @endif -->
                             <!-- </td> -->
 
                             <!-- ACTION -->
@@ -255,7 +255,7 @@
                                     @if(!auth()->user()->isSubUser())
                                         <!-- COPY TOKEN -->
                                         <!-- <button id="copyBtn" onclick="copyPrt()" class="btn-icon btn-copy">📋 Copy</button>
-                                                                                                                                                                                                                                                                                                                                                                                          -->
+                                                                                                                                                                                                                                                                                                                                                                                                                  -->
                                         <button onclick="renewPrt({{ $token->id }}, this)" class="btn btn-warning">
                                             Refresh Token
                                         </button>
@@ -438,15 +438,13 @@
 
         async function renewPrt(tokenId, btn) {
 
-            if (!confirm("Are you sure you want to renew this token?")) return;
-
             try {
-                console.log(btn);
+                // 🔄 set loading
                 btn.disabled = true;
-                btn.innerText = "Refreshing...";
+                btn.innerHTML = '<span class="status-refreshing">Refreshing...</span>';
 
-                // 🔥 PENTING: kasih waktu browser render UI dulu
-                await new Promise(resolve => setTimeout(resolve, 50));
+
+                await new Promise(resolve => setTimeout(resolve, 100));
 
                 const response = await fetch(`/tokens/${tokenId}/renew`, {
                     method: "POST",
@@ -461,13 +459,34 @@
                     throw new Error(data.message || "Failed to renew token");
                 }
 
+
+                const row = btn.closest('tr');
+                const lastRenewCell = row.children[3];
+
+                const now = new Date();
+                const formatted =
+                    now.getFullYear() + '-' +
+                    String(now.getMonth() + 1).padStart(2, '0') + '-' +
+                    String(now.getDate()).padStart(2, '0') + ' ' +
+                    String(now.getHours()).padStart(2, '0') + ':' +
+                    String(now.getMinutes()).padStart(2, '0') + ':' +
+                    String(now.getSeconds()).padStart(2, '0');
+
+                lastRenewCell.innerText = formatted;
+
                 showToast("PRT successfully renewed", "success");
 
             } catch (err) {
+
                 showToast(err.message || "Failed to renew PRT", "error");
+
             } finally {
-                btn.disabled = false;
-                btn.innerText = "Refresh Token";
+
+                // biar user sempat lihat "Refreshing..."
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.innerText = "Refresh Token";
+                }, 800);
             }
         }
         function showToast(message, type = "success") {
