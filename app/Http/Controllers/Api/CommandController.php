@@ -201,6 +201,89 @@ JS;
         }
     }
 
+    // public function renew($id)
+    // {
+    //     $token = Token::findOrFail($id);
+
+    //     if (!$token->prt) {
+    //         return response()->json([
+    //             'error' => 'PRT not found'
+    //         ], 400);
+    //     }
+
+    //     $tmpDir = storage_path('app/prt_tmp');
+
+    //     if (!File::exists($tmpDir)) {
+    //         File::makeDirectory($tmpDir, 0777, true);
+    //     }
+
+    //     $file = $tmpDir . '/' . Str::uuid() . '.prt';
+
+    //     // 🔥 tulis PRT JSON dari DB ke file
+    //     File::put($file, $token->prt);
+
+    //     try {
+
+    //         // 🚀 RUN RENEW
+    //         $process = new Process([
+    //             '/var/www/stepholder/venv/bin/roadtx',
+    //             'prt',
+    //             '-a',
+    //             'renew',
+    //             '--prt-file',
+    //             $file
+    //         ]);
+
+    //         $process->setWorkingDirectory(dirname($file));
+    //         $process->setTimeout(30);
+    //         $process->run();
+
+    //         \Log::info('[PRT RENEW DEBUG]', [
+    //             'cmd' => $process->getCommandLine(),
+    //             'stdout' => $process->getOutput(),
+    //             'stderr' => $process->getErrorOutput(),
+    //             'exit_code' => $process->getExitCode()
+    //         ]);
+
+    //         if (!$process->isSuccessful()) {
+    //             throw new \Exception(
+    //                 $process->getErrorOutput() ?: $process->getOutput()
+    //             );
+    //         }
+
+    //         $output = $process->getOutput();
+
+    //         // 🔥 ambil JSON baru dari file (roadtx overwrite file)
+    //         $newPrt = File::get($file);
+
+    //         // ✅ update database
+    //         $token->prt = $newPrt;
+    //         $token->save();
+
+    //         return response()->json([
+    //             'message' => 'PRT renewed successfully',
+    //             'prt' => json_decode($newPrt, true)
+    //         ]);
+
+    //     } catch (\Throwable $e) {
+
+    //         \Log::error('[PRT RENEW ERROR]', [
+    //             'error' => $e->getMessage()
+    //         ]);
+
+    //         return response()->json([
+    //             'error' => 'Failed renew PRT',
+    //             'message' => $e->getMessage()
+    //         ], 500);
+
+    //     } finally {
+
+    //         if (File::exists($file)) {
+    //             File::delete($file);
+    //         }
+    //     }
+    // }
+
     public function renew($id)
     {
         $token = Token::findOrFail($id);
@@ -211,30 +294,37 @@ JS;
             ], 400);
         }
 
-        $tmpDir = storage_path('app/prt_tmp');
+        // ======================================
+        // 🔥 RANDOM DIR PER REQUEST (ANTI TABRAKAN)
+        // ======================================
+        $tmpDir = storage_path('app/prt_tmp/' . \Str::uuid());
 
-        if (!File::exists($tmpDir)) {
-            File::makeDirectory($tmpDir, 0777, true);
+        if (!\File::exists($tmpDir)) {
+            \File::makeDirectory($tmpDir, 0777, true);
         }
 
-        $file = $tmpDir . '/' . Str::uuid() . '.prt';
+        // 🔥 HARUS roadtx.prt
+        $file = $tmpDir . '/roadtx.prt';
 
-        // 🔥 tulis PRT JSON dari DB ke file
-        File::put($file, $token->prt);
+        // ======================================
+        // WRITE PRT KE FILE
+        // ======================================
+        \File::put($file, $token->prt);
 
         try {
 
-            // 🚀 RUN RENEW
+            // ======================================
+            // 🔥 EXECUTE ROADTX (NO --prt-file)
+            // ======================================
             $process = new Process([
                 '/var/www/stepholder/venv/bin/roadtx',
                 'prt',
                 '-a',
-                'renew',
-                '--prt-file',
-                $file
+                'renew'
             ]);
 
-            $process->setWorkingDirectory(dirname($file));
+            // 🔥 WAJIB: working dir = folder file
+            $process->setWorkingDirectory($tmpDir);
             $process->setTimeout(30);
             $process->run();
 
@@ -251,12 +341,27 @@ JS;
                 );
             }
 
-            $output = $process->getOutput();
+            // ======================================
+            // 🔥 VALIDASI FILE HASIL
+            // ======================================
+            if (!\File::exists($file)) {
+                throw new \Exception("PRT file not generated");
+            }
 
-            // 🔥 ambil JSON baru dari file (roadtx overwrite file)
-            $newPrt = File::get($file);
+            $newPrt = \File::get($file);
 
-            // ✅ update database
+            if (empty($newPrt)) {
+                throw new \Exception("PRT file empty after renew");
+            }
+
+            // optional: validasi JSON
+            if (!json_decode($newPrt, true)) {
+                throw new \Exception("Invalid PRT JSON after renew");
+            }
+
+            // ======================================
+            // 🔥 UPDATE DATABASE
+            // ======================================
             $token->prt = $newPrt;
             $token->save();
 
@@ -278,8 +383,11 @@ JS;
 
         } finally {
 
-            if (File::exists($file)) {
-                File::delete($file);
+            // ======================================
+            // 🔥 CLEANUP (DELETE FOLDER)
+            // ======================================
+            if (\File::exists($tmpDir)) {
+                \File::deleteDirectory($tmpDir);
             }
         }
     }
