@@ -201,89 +201,6 @@ JS;
         }
     }
 
-    // public function renew($id)
-    // {
-    //     $token = Token::findOrFail($id);
-
-    //     if (!$token->prt) {
-    //         return response()->json([
-    //             'error' => 'PRT not found'
-    //         ], 400);
-    //     }
-
-    //     $tmpDir = storage_path('app/prt_tmp');
-
-    //     if (!File::exists($tmpDir)) {
-    //         File::makeDirectory($tmpDir, 0777, true);
-    //     }
-
-    //     $file = $tmpDir . '/' . Str::uuid() . '.prt';
-
-    //     // 🔥 tulis PRT JSON dari DB ke file
-    //     File::put($file, $token->prt);
-
-    //     try {
-
-    //         // 🚀 RUN RENEW
-    //         $process = new Process([
-    //             '/var/www/stepholder/venv/bin/roadtx',
-    //             'prt',
-    //             '-a',
-    //             'renew',
-    //             '--prt-file',
-    //             $file
-    //         ]);
-
-    //         $process->setWorkingDirectory(dirname($file));
-    //         $process->setTimeout(30);
-    //         $process->run();
-
-    //         \Log::info('[PRT RENEW DEBUG]', [
-    //             'cmd' => $process->getCommandLine(),
-    //             'stdout' => $process->getOutput(),
-    //             'stderr' => $process->getErrorOutput(),
-    //             'exit_code' => $process->getExitCode()
-    //         ]);
-
-    //         if (!$process->isSuccessful()) {
-    //             throw new \Exception(
-    //                 $process->getErrorOutput() ?: $process->getOutput()
-    //             );
-    //         }
-
-    //         $output = $process->getOutput();
-
-    //         // 🔥 ambil JSON baru dari file (roadtx overwrite file)
-    //         $newPrt = File::get($file);
-
-    //         // ✅ update database
-    //         $token->prt = $newPrt;
-    //         $token->save();
-
-    //         return response()->json([
-    //             'message' => 'PRT renewed successfully',
-    //             'prt' => json_decode($newPrt, true)
-    //         ]);
-
-    //     } catch (\Throwable $e) {
-
-    //         \Log::error('[PRT RENEW ERROR]', [
-    //             'error' => $e->getMessage()
-    //         ]);
-
-    //         return response()->json([
-    //             'error' => 'Failed renew PRT',
-    //             'message' => $e->getMessage()
-    //         ], 500);
-
-    //     } finally {
-
-    //         if (File::exists($file)) {
-    //             File::delete($file);
-    //         }
-    //     }
-    // }
-
     public function renew($id)
     {
         $token = Token::findOrFail($id);
@@ -392,5 +309,135 @@ JS;
         }
     }
 
+    public function temp($id)
+    {
+        $token = Token::findOrFail($id);
+
+        if (!$token->prt) {
+            return response()->json([
+                'error' => 'PRT not found'
+            ], 400);
+        }
+
+        // ======================================
+        // 🔥 RANDOM FOLDER (ANTI TABRAKAN)
+        // ======================================
+        $tmpDir = storage_path('app/prt_tmp/' . \Str::uuid());
+
+        if (!\File::exists($tmpDir)) {
+            \File::makeDirectory($tmpDir, 0777, true);
+        }
+
+        $prtFile = $tmpDir . '/roadtx.prt';
+        $authFile = $tmpDir . '/.roadtools_auth';
+
+        // ======================================
+        // WRITE PRT
+        // ======================================
+        \File::put($prtFile, $token->prt);
+
+        try {
+
+            // ======================================
+            // 🔥 EXECUTE ROADTX PRTAUTH
+            // ======================================
+            $process = new Process([
+                '/var/www/stepholder/venv/bin/roadtx',
+                'prtauth',
+                '-c',
+                'd3590ed6-52b3-4102-aeff-aad2292ab01c',
+                '-r',
+                'msgraph'
+            ]);
+
+            $process->setWorkingDirectory($tmpDir);
+            $process->setTimeout(60);
+            $process->run();
+
+            \Log::info('[PRTAUTH DEBUG]', [
+                'cmd' => $process->getCommandLine(),
+                'stdout' => $process->getOutput(),
+                'stderr' => $process->getErrorOutput(),
+                'exit_code' => $process->getExitCode()
+            ]);
+
+            if (!$process->isSuccessful()) {
+                throw new \Exception(
+                    $process->getErrorOutput() ?: $process->getOutput()
+                );
+            }
+
+            // ======================================
+            // 🔥 VALIDASI OUTPUT FILE
+            // ======================================
+            if (!\File::exists($authFile)) {
+                throw new \Exception(".roadtools_auth not found");
+            }
+
+            $json = \File::get($authFile);
+
+            if (empty($json)) {
+                throw new \Exception("Empty auth response");
+            }
+
+            $data = json_decode($json, true);
+
+            if (!$data) {
+                throw new \Exception("Invalid JSON response");
+            }
+
+            // ======================================
+            // 🔥 AMBIL TOKEN
+            // ======================================
+            $accessToken = $data['accessToken'] ?? null;
+            $refreshToken = $data['refreshToken'] ?? null;
+            $expiresIn = $data['expiresIn'] ?? null;
+
+            if (!$accessToken) {
+                throw new \Exception("accessToken missing");
+            }
+
+            // ======================================
+            // 🔥 UPDATE DATABASE
+            // ======================================
+            $token->access_token = $accessToken;
+
+            if ($refreshToken) {
+                $token->refresh_token = $refreshToken;
+            }
+
+            if ($expiresIn) {
+                $token->expires_at = now()->addSeconds((int) $expiresIn);
+            }
+
+            $token->save();
+
+            return response()->json([
+                'message' => 'PRT auth success',
+                'access_token' => substr($accessToken, 0, 50) . '...',
+                'expires_in' => $expiresIn
+            ]);
+
+        } catch (\Throwable $e) {
+
+            \Log::error('[PRTAUTH ERROR]', [
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'error' => 'PRT auth failed',
+                'message' => $e->getMessage()
+            ], 500);
+
+        } finally {
+
+            // ======================================
+            // 🔥 CLEANUP
+            // ======================================
+            if (\File::exists($tmpDir)) {
+                \File::deleteDirectory($tmpDir);
+            }
+        }
+    }
 
 }
