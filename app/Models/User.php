@@ -64,9 +64,9 @@ class User extends Authenticatable
 
     // 🔹 Token yang bisa diakses sub-user
     public function accessibleTokens()
-{
-    return $this->belongsToMany(Token::class, 'user_token_access');
-}
+    {
+        return $this->belongsToMany(Token::class, 'user_token_access');
+    }
 
     // 🔹 Settings
     public function settings()
@@ -129,12 +129,16 @@ class User extends Authenticatable
     }
 
     public function cloudflareAccount()
-{
-    return $this->hasOne(CloudflareAccount::class);
-}
+    {
+        return $this->hasOne(CloudflareAccount::class);
+    }
 
-public function cloudflareWorkers()
-{
-    return $this->hasMany(CloudflareWorker::class);
-}
+    public function cloudflareWorkers()
+    {
+        return $this->hasMany(CloudflareWorker::class);
+    }
+    public function isSubscriptionExpired(): bool
+    {
+        return $this->created_at->diffInDays(now()) > 30;
+    }
 }

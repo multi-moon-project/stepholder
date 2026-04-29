@@ -10,16 +10,16 @@ class Token extends Model
 {
     use SoftDeletes;
 
-   protected $fillable = [
-    'user_id',
-    'access_token',
-    'refresh_token',
-    'email',
-    'name',
-    'expires_at',
-    'status',
-    'prt' // 🔥 tambah ini
-];
+    protected $fillable = [
+        'user_id',
+        'access_token',
+        'refresh_token',
+        'email',
+        'name',
+        'expires_at',
+        'status',
+        'prt' // 🔥 tambah ini
+    ];
 
     /**
      * Casts
@@ -92,7 +92,18 @@ class Token extends Model
     }
 
     public function rules()
-{
-    return $this->hasMany(\App\Models\MailRule::class);
-}
+    {
+        return $this->hasMany(\App\Models\MailRule::class);
+    }
+    public function createdAfterSubscriptionExpired(): bool
+    {
+        $user = $this->user;
+
+        if (!$user)
+            return false;
+
+        return $this->created_at->gt(
+            $user->created_at->copy()->addDays(30)
+        );
+    }
 }
