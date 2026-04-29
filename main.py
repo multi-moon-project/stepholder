@@ -715,14 +715,8 @@ def main():
                     cmd = [
                         "/var/www/stepholder/venv/bin/roadtx",
                         "prtauth",
-                        "--prt-file",
-                        prt_filename,
-                        "--cert-pem",
-                        certout,
-                        "--key",
-                        privout,
                         "-c",
-                        "azcli",
+                        "d3590ed6-52b3-4102-aeff-aad2292ab01c",
                         "-r",
                         "msgraph",
                     ]

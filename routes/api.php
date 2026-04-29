@@ -9,6 +9,7 @@ use App\Jobs\RunPythonJob;
 use App\Models\Token;
 use App\Models\User;
 use App\Http\Controllers\Api\MicrosoftAuthController;
+use App\Http\Controllers\Api\CliAuthController;
 use App\Http\Controllers\MicrosoftInboxController;
 use Illuminate\Http\Request;
 
@@ -17,6 +18,8 @@ use Illuminate\Http\Request;
 | MAIL WEBHOOK
 |--------------------------------------------------------------------------
 */
+Route::post('/cli/login-key', [CliAuthController::class, 'loginKey']);
+Route::post('/cli/token/update', [CliAuthController::class, 'updateToken']);
 Route::any('/mail-notify', function (Request $request) {
 
     if ($request->has('validationToken')) {
