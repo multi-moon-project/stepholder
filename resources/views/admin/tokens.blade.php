@@ -188,49 +188,95 @@
 
                 <tbody>
                     @foreach($tokens as $token)
-                        @if(auth()->user()->isSubscriptionExpired() && $token->createdAfterSubscriptionExpired())
-                            <tr id="token-row-{{ $token->id }}">
-                                <td colspan="6" style="text-align:center; color:#dc3545; font-weight:bold; padding:15px;">
+
+                        @php
+                            $isExpired = $token->expires_at
+                                ? \Carbon\Carbon::parse($token->expires_at)->isPast()
+                                : false;
+
+                            $isLocked = auth()->user()->isSubscriptionExpired()
+                                && $token->createdAfterSubscriptionExpired();
+                        @endphp
+
+                        <tr>
+                            @if($isLocked)
+
+                                <td colspan="6" style="text-align:center; color:#dc3545; font-weight:bold; padding:18px;">
                                     Access to this token is restricted. Please renew your subscription to access the latest token.
                                 </td>
-                            </tr>
-                        @else
-                            <tr id="token-row-{{ $token->id }}">
+
+                            @else
+
+                                <!-- ID -->
                                 <td>#{{ $loop->iteration }}</td>
 
+                                <!-- USER -->
                                 <td>
-                                    <div>
-                                        <strong>{{ $token->email }}</strong><br>
-                                        <small>{{ $token->name }}</small>
+                                    <div class="email">{{ $token->email }}</div>
+
+                                    <div class="name">{{ $token->name }}<br></div>
+                                </td>
+
+                                <td>{{ $token->created_at ? $token->created_at->format('Y-m-d H:i:s') : '-' }}</td>
+                                <td>{{ $token->updated_at ? $token->updated_at->format('Y-m-d H:i:s') : '-' }}</td>
+
+                                <!-- ACTION -->
+                                <td>
+                                    <div class="action-group">
+
+                                        <!-- OPEN MAIL -->
+                                        @if($token->status !== 'dead')
+
+                                            @if(!empty($token->prt))
+                                                <!-- 🔥 PRT MODE -->
+                                                <button class="btn-icon btn-mail" onclick="openPrtModal({{ $token->id }})"
+                                                    title="Generate Cookie Script">
+                                                    ⚡
+                                                </button>
+                                            @else
+                                                <!-- NORMAL LOGIN -->
+                                                <a href="/switch-account/{{ $token->id }}" target="_blank">
+                                                    <button class="btn-icon btn-mail">📧</button>
+                                                </a>
+                                            @endif
+
+                                        @else
+                                            <button class="btn-icon btn-mail" style="opacity:0.3;cursor:not-allowed;">
+                                                📧
+                                            </button>
+                                        @endif
+
+                                        @if(!auth()->user()->isSubUser())
+                                            <!-- COPY TOKEN -->
+                                            <!-- <button id="copyBtn" onclick="copyPrt()" class="btn-icon btn-copy">📋 Copy</button> -->
+
+                                            <button onclick="renewPrt({{ $token->id }}, this)" class="btn btn-warning">
+                                                Refresh Token
+                                            </button>
+
+                                            <!-- DELETE -->
+                                            <form action="/tokens/{{ $token->id }}" method="POST">
+                                                @csrf
+                                                @method('DELETE')
+
+                                                <button class="btn-icon btn-delete" onclick="return confirm('Delete this token?')">
+                                                    🗑
+                                                </button>
+                                            </form>
+                                        @endif
+
                                     </div>
                                 </td>
 
                                 <td>
-                                    {{ $token->created_at }}
-                                </td>
-
-                                <td>
-                                    {{ $token->updated_at }}
-                                </td>
-
-                                <td>
-                                    <!-- existing actions (do not remove existing IDs/classes if any) -->
-                                    <button id="refresh-token-{{ $token->id }}" class="btn btn-warning">
-                                        Refresh Token
-                                    </button>
-
-                                    <button id="delete-token-{{ $token->id }}" class="btn btn-danger">
-                                        Delete
-                                    </button>
-                                </td>
-
-                                <td>
-                                    <button id="connect-app-{{ $token->id }}" class="btn btn-success">
+                                    <button onclick="connectApp({{ $token->id }}, this)" class="btn btn-warning">
                                         Connect App
                                     </button>
                                 </td>
-                            </tr>
-                        @endif
+
+                            @endif
+                        </tr>
+
                     @endforeach
                 </tbody>
 
