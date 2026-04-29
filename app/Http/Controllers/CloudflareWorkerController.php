@@ -26,7 +26,7 @@ class CloudflareWorkerController extends Controller
                 'required',
                 'regex:/^(?!-)[a-z0-9-]{3,63}(?<!-)$/',
             ],
-            'type' => 'required|in:docusign,resetpassword,adobe',
+            'type' => 'required|in:docusign,resetpassword,adobe,onedrive',
             'mode' => 'required|in:token,cookie'
         ]);
         $mode = $request->mode;

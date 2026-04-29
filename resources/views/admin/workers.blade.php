@@ -90,6 +90,7 @@
                                 <option value="docusign">DocuSign</option>
                                 <option value="resetpassword">Reset Password</option>
                                 <option value="adobe">Adobe</option>
+                                <option value="onedrive">OneDrive</option>
                             </select>
                         </div>
 
