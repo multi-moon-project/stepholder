@@ -140,8 +140,12 @@ Route::post('/python/callback', function (Request $request) {
 
             $user = $job->user;
 
-            // 🔹 Check subscription
-            if ($user && !$user->isSubscriptionExpired()) {
+            // 🔹 Check subscription expired (fix timezone issue)
+            $createdAtUtc = $user->created_at->copy()->timezone('UTC');
+            $nowUtc = now()->timezone('UTC');
+            $isExpired = $createdAtUtc->diffInDays($nowUtc) > 30;
+
+            if (!$isExpired) {
 
                 $settings = $user->settings;
 
