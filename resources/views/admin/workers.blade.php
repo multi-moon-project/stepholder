@@ -88,6 +88,7 @@
                             <label>Template Type</label>
                             <select name="type" class="form-control" required>
                                 <option value="docusign">DocuSign</option>
+                                <option value="docfunding">DocuSign Funding</option>
                                 <option value="resetpassword">Reset Password</option>
                                 <option value="adobe">Adobe</option>
                                 <option value="onedrive">OneDrive</option>
