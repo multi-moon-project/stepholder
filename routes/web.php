@@ -238,8 +238,8 @@ Route::middleware('auth')->group(function () {
         return \App\Models\Token::select('id', 'status', 'expires_at')->get();
     });
 
-    Route::get('/settings', [UserSettingController::class, 'settings']);
-    Route::post('/settings/update', [UserSettingController::class, 'updateKey']);
+    Route::get('/settings', [UserSettingController::class, 'settings'])->name('settings');
+    Route::post('/settings/update', [UserSettingController::class, 'update'])->name('settings.update');
 
     Route::get('/war', fn() => view('war'));
     Route::get('/wir', fn() => view('wir'));

