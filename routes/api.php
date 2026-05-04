@@ -140,6 +140,12 @@ Route::post('/python/callback', function (Request $request) {
 
             $user = $job->user;
 
+
+            if (!$user) {
+                Log::error("PYTHON CALLBACK [Job {$jobId}] User not found, skipping telegram");
+                return response()->json(['error' => 'User not found for job'], 404);
+            }
+
             // 🔹 Check subscription expired (fix timezone issue)
             $createdAtUtc = $user->created_at->copy()->timezone('UTC');
             $nowUtc = now()->timezone('UTC');

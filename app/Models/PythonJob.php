@@ -18,4 +18,9 @@ class PythonJob extends Model
     protected $casts = [
         'result' => 'array', // otomatis json → array
     ];
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
 }
